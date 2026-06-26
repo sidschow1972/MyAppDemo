@@ -1,10 +1,9 @@
 version: v0.1
+testId: MyApp-Full-Load-Test
 testName: MyApp-Full-Load-Test
 testPlan: test-plan.jmx
-description: Full load test — ramp-up 50 users over 60s, sustain 120s, ramp-down
+description: Full load test ramp-up 50 users over 60s sustain 120s ramp-down
 engineInstances: 1
-properties:
-  userPropertyFile: ''
 env:
   - name: target_host
     value: app-myapp-sid.azurewebsites.net
