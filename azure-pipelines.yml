@@ -66,7 +66,7 @@ stages:
                   inputs:
                     azureSubscription: 'myapp-service-connection'
                     appType: 'webAppLinux'
-                    appName: 'app-myapp-prod'
+                    appName: 'app-myapp-sid'
                     package: '$(Pipeline.Workspace)/drop/**/*.zip'
 
   - stage: Validate
@@ -77,5 +77,5 @@ stages:
           vmImage: ubuntu-latest
         steps:
           - script: |
-              curl -f https://app-myapp-prod.azurewebsites.net/health || exit 1
+              curl -f https://app-myapp-sid.azurewebsites.net/health || exit 1
             displayName: 'Smoke test production'
