@@ -22,6 +22,7 @@ stages:
                   --username $servicePrincipalId \
                   --federated-token $idToken \
                   --tenant $tenantId
+                az account set --subscription abacfdae-513e-452c-89e2-539ebce94192
                 az group create --name rg-tfstate --location eastus --output none
                 az storage account create \
                   --name stmyapptfstate001 \
