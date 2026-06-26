@@ -16,7 +16,12 @@ stages:
               azureSubscription: 'myapp-service-connection'
               scriptType: 'bash'
               scriptLocation: 'inlineScript'
+              addSpnToEnvironment: true
               inlineScript: |
+                az login --service-principal \
+                  --username $servicePrincipalId \
+                  --password $servicePrincipalKey \
+                  --tenant $tenantId
                 az group create --name rg-tfstate --location eastus --output none
                 az storage account create \
                   --name stmyapptfstate001 \
@@ -27,6 +32,7 @@ stages:
                 az storage container create \
                   --name tfstate \
                   --account-name stmyapptfstate001 \
+                  --auth-mode login \
                   --output none
           - task: TerraformInstaller@1
             inputs:
