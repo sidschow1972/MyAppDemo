@@ -1,5 +1,5 @@
 version: v0.1
-testName: MyApp Full Load Test
+testName: MyApp-Full-Load-Test
 testPlan: test-plan.jmx
 description: Full load test — ramp-up 50 users over 60s, sustain 120s, ramp-down
 engineInstances: 1
