@@ -9,7 +9,7 @@ resource "azurerm_service_plan" "app" {
   resource_group_name = azurerm_resource_group.app.name
   location            = azurerm_resource_group.app.location
   os_type             = "Linux"
-  sku_name            = "P1v3" # Premium tier — required for deployment slots
+  sku_name            = "F1"
 }
 
 resource "azurerm_linux_web_app" "app" {
@@ -22,6 +22,7 @@ resource "azurerm_linux_web_app" "app" {
     application_stack {
       dotnet_version = "8.0"
     }
+    always_on = false
   }
 
   app_settings = {
@@ -35,30 +36,8 @@ resource "azurerm_linux_web_app" "app" {
   }
 }
 
-# Staging slot — CI/CD deploys here first, swap promotes to production
-resource "azurerm_linux_web_app_slot" "staging" {
-  name           = "staging"
-  app_service_id = azurerm_linux_web_app.app.id
-
-  site_config {
-    application_stack {
-      dotnet_version = "8.0"
-    }
-  }
-
-  app_settings = {
-    "ASPNETCORE_ENVIRONMENT"                = "Staging"
-    "KeyVaultUri"                           = azurerm_key_vault.app.vault_uri
-    "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.app.connection_string
-  }
-
-  identity {
-    type = "SystemAssigned"
-  }
-}
-
 resource "azurerm_key_vault" "app" {
-  name                = "kv-myapp-prod"
+  name                = "kv-myapp-sid"
   resource_group_name = azurerm_resource_group.app.name
   location            = azurerm_resource_group.app.location
   tenant_id           = data.azurerm_client_config.current.tenant_id
