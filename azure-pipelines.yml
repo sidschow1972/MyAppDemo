@@ -20,8 +20,9 @@ stages:
               inlineScript: |
                 az login --service-principal \
                   --username $servicePrincipalId \
-                  --password $servicePrincipalKey \
+                  --federated-token $idToken \
                   --tenant $tenantId
+                az account set --subscription $ARM_SUBSCRIPTION_ID
                 az group create --name rg-tfstate --location eastus --output none
                 az storage account create \
                   --name stmyapptfstate001 \
