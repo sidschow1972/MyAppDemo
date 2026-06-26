@@ -40,23 +40,24 @@ stages:
         pool:
           vmImage: ubuntu-latest
         steps:
-          - task: SonarCloudPrepare@1
+          - task: SonarQubePrepare@7
             displayName: 'Prepare SonarCloud analysis'
             inputs:
-              SonarCloud: 'sonarcloud-connection'
-              organization: 'sidschow1972'
+              SonarQube: 'sonarcloud-connection'
               scannerMode: 'dotnet'
               projectKey: 'sidschow1972_MyAppDemo'
               projectName: 'MyAppDemo'
+              extraProperties: |
+                sonar.organization=sidschow1972
           - task: DotNetCoreCLI@2
             displayName: 'Build'
             inputs:
               command: 'build'
               projects: 'MyApp.Web/MyApp.Web.csproj'
               arguments: '--configuration Release'
-          - task: SonarCloudAnalyze@1
+          - task: SonarQubeAnalyze@7
             displayName: 'Run SonarCloud analysis'
-          - task: SonarCloudPublish@1
+          - task: SonarQubePublish@7
             displayName: 'Publish SonarCloud results'
             inputs:
               pollingTimeoutSec: '300'
