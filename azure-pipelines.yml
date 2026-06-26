@@ -10,30 +10,6 @@ stages:
         pool:
           vmImage: ubuntu-latest
         steps:
-          - task: AzureCLI@2
-            displayName: 'Bootstrap Terraform state storage'
-            inputs:
-              azureSubscription: 'myapp-service-connection'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              addSpnToEnvironment: true
-              inlineScript: |
-                az group create --name rg-tfstate --location eastus --output none
-                az storage account create \
-                  --name stmyapptfstate001 \
-                  --resource-group rg-tfstate \
-                  --location eastus \
-                  --sku Standard_LRS \
-                  --output none
-                ACCOUNT_KEY=$(az storage account keys list \
-                  --resource-group rg-tfstate \
-                  --account-name stmyapptfstate001 \
-                  --query '[0].value' -o tsv)
-                az storage container create \
-                  --name tfstate \
-                  --account-name stmyapptfstate001 \
-                  --account-key $ACCOUNT_KEY \
-                  --output none
           - task: TerraformInstaller@1
             inputs:
               terraformVersion: '1.7.5'
