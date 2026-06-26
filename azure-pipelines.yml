@@ -79,3 +79,18 @@ stages:
           - script: |
               curl -f https://app-myapp-sid.azurewebsites.net/health || exit 1
             displayName: 'Smoke test production'
+
+  - stage: LoadTest
+    dependsOn: Validate
+    jobs:
+      - job: RunLoadTest
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: AzureLoadTest@1
+            displayName: 'Run full load test'
+            inputs:
+              azureSubscription: 'myapp-service-connection'
+              loadTestConfigFile: 'loadtest/config.yaml'
+              loadTestResource: 'lt-myapp-sid'
+              resourceGroup: 'rg-myapp-prod'
