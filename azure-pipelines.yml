@@ -21,7 +21,7 @@ stages:
               workingDirectory: '$(System.DefaultWorkingDirectory)/infra'
               backendServiceArm: 'myapp-service-connection'
               backendAzureRmResourceGroupName: 'rg-tfstate'
-              backendAzureRmStorageAccountName: 'stmyapptfstate001'
+              backendAzureRmStorageAccountName: 'stmyapptfstatesid'
               backendAzureRmContainerName: 'tfstate'
               backendAzureRmKey: 'myapp.terraform.tfstate'
           - task: TerraformTaskV4@4
