@@ -6,10 +6,13 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 3.100"
     }
-    azuread = {
-      source  = "hashicorp/azuread"
-      version = "~> 2.47"
-    }
+  }
+
+  backend "azurerm" {
+    resource_group_name  = "rg-tfstate"
+    storage_account_name = "stmyapptfstate001"
+    container_name       = "tfstate"
+    key                  = "myapp.terraform.tfstate"
   }
 }
 

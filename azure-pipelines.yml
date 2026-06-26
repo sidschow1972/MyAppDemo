@@ -4,7 +4,55 @@ trigger:
       - main
 
 stages:
+  - stage: Infrastructure
+    jobs:
+      - job: TerraformApply
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Bootstrap Terraform state storage'
+            inputs:
+              azureSubscription: 'myapp-service-connection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az group create --name rg-tfstate --location eastus --output none
+                az storage account create \
+                  --name stmyapptfstate001 \
+                  --resource-group rg-tfstate \
+                  --location eastus \
+                  --sku Standard_LRS \
+                  --output none
+                az storage container create \
+                  --name tfstate \
+                  --account-name stmyapptfstate001 \
+                  --output none
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: '1.7.5'
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Init'
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/infra'
+              backendServiceArm: 'myapp-service-connection'
+              backendAzureRmResourceGroupName: 'rg-tfstate'
+              backendAzureRmStorageAccountName: 'stmyapptfstate001'
+              backendAzureRmContainerName: 'tfstate'
+              backendAzureRmKey: 'myapp.terraform.tfstate'
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Apply'
+            inputs:
+              provider: 'azurerm'
+              command: 'apply'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/infra'
+              environmentServiceNameAzureRM: 'myapp-service-connection'
+              commandOptions: '-auto-approve'
+
   - stage: Build
+    dependsOn: Infrastructure
     jobs:
       - job: BuildApp
         pool:
