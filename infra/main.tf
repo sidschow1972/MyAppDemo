@@ -1,3 +1,4 @@
+
 resource "azurerm_resource_group" "app" {
   name     = "rg-myapp-prod"
   location = "East US"
@@ -78,8 +79,6 @@ resource "azurerm_application_insights" "app" {
   location            = azurerm_resource_group.app.location
   application_type    = "web"
 }
-
-data "azurerm_client_config" "current" {}
 
 # --- GitHub Actions federated identity (OIDC, no stored secret) ---
 # Uncomment and fill in if deploying from GitHub instead of Azure DevOps.
