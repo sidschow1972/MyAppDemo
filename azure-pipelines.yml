@@ -1,0 +1,68 @@
+trigger:
+  branches:
+    include:
+      - main
+
+stages:
+  - stage: Build
+    jobs:
+      - job: BuildApp
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: DotNetCoreCLI@2
+            inputs:
+              command: 'publish'
+              publishWebProjects: true
+              projects: 'MyApp.Web/MyApp.Web.csproj'
+              arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)'
+          - publish: $(Build.ArtifactStagingDirectory)
+            artifact: drop
+
+  - stage: DeployToStaging
+    dependsOn: Build
+    jobs:
+      - job: DeployStagingSlot
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - download: current
+            artifact: drop
+          - task: AzureWebApp@1
+            inputs:
+              azureSubscription: 'myapp-service-connection'
+              appType: 'webAppLinux'
+              appName: 'app-myapp-prod'
+              slotName: 'staging'
+              package: '$(Pipeline.Workspace)/drop/**/*.zip'
+
+  - stage: ValidateStaging
+    dependsOn: DeployToStaging
+    jobs:
+      - job: SmokeTest
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - script: |
+              curl -f https://app-myapp-prod-staging.azurewebsites.net/health || exit 1
+            displayName: 'Smoke test staging slot'
+
+  - stage: SwapToProduction
+    dependsOn: ValidateStaging
+    condition: succeeded()
+    jobs:
+      - deployment: SlotSwap
+        environment: 'production'
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureAppServiceManage@0
+                  inputs:
+                    azureSubscription: 'myapp-service-connection'
+                    action: 'Swap Slots'
+                    webAppName: 'app-myapp-prod'
+                    resourceGroupName: 'rg-myapp-prod'
+                    sourceSlot: 'staging'
