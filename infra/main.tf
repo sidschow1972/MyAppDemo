@@ -5,7 +5,7 @@ resource "azurerm_resource_group" "app" {
 }
 
 resource "azurerm_service_plan" "app" {
-  name                = "asp-myapp-prod"
+  name                = "asp-myapp-prod-f1"
   resource_group_name = azurerm_resource_group.app.name
   location            = azurerm_resource_group.app.location
   os_type             = "Linux"
@@ -52,11 +52,20 @@ resource "azurerm_key_vault_access_policy" "app_identity" {
   secret_permissions = ["Get", "List"]
 }
 
+resource "azurerm_log_analytics_workspace" "app" {
+  name                = "law-myapp-prod"
+  resource_group_name = azurerm_resource_group.app.name
+  location            = azurerm_resource_group.app.location
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
 resource "azurerm_application_insights" "app" {
   name                = "appi-myapp-prod"
   resource_group_name = azurerm_resource_group.app.name
   location            = azurerm_resource_group.app.location
   application_type    = "web"
+  workspace_id        = azurerm_log_analytics_workspace.app.id
 }
 
 # --- GitHub Actions federated identity (OIDC, no stored secret) ---
