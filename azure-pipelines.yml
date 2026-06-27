@@ -6,13 +6,21 @@ trigger:
 stages:
   - stage: Infrastructure
     jobs:
-      - job: TerraformApply
+
+      # ── Job 1: Plan ────────────────────────────────────────────────
+      # Runs terraform plan and saves the plan file as a pipeline
+      # artifact. The human reviewer checks this job's logs to see
+      # exactly what Terraform intends to create/change/destroy before
+      # deciding whether to approve.
+      - job: TerraformPlan
+        displayName: 'Terraform Plan'
         pool:
           vmImage: ubuntu-latest
         steps:
           - task: TerraformInstaller@1
             inputs:
               terraformVersion: '1.7.5'
+
           - task: TerraformTaskV4@4
             displayName: 'Terraform Init'
             inputs:
@@ -24,6 +32,75 @@ stages:
               backendAzureRmStorageAccountName: 'stmyapptfstatesid'
               backendAzureRmContainerName: 'tfstate'
               backendAzureRmKey: 'myapp.terraform.tfstate'
+
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Plan'
+            inputs:
+              provider: 'azurerm'
+              command: 'plan'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/infra'
+              environmentServiceNameAzureRM: 'myapp-service-connection'
+              # -out saves the plan to a binary file so Apply executes
+              # exactly what was reviewed — no drift between plan and apply.
+              commandOptions: '-out=$(System.DefaultWorkingDirectory)/infra/tfplan'
+
+          # Publish the binary plan file so the Apply job can download it.
+          - publish: '$(System.DefaultWorkingDirectory)/infra/tfplan'
+            artifact: terraform-plan
+            displayName: 'Publish plan artifact'
+
+      # ── Job 2: Approve ─────────────────────────────────────────────
+      # Agentless job (pool: server) — no VM needed, runs inside
+      # Azure DevOps itself. Pauses the pipeline and sends an email
+      # to the notifyUsers address. The reviewer clicks the link in
+      # the email (or opens the pipeline run in the portal) and
+      # clicks Approve or Reject. Pipeline resumes only on Approve.
+      # Times out and auto-rejects after 24 hours if no action taken.
+      - job: WaitForApproval
+        displayName: 'Review & Approve Terraform Plan'
+        dependsOn: TerraformPlan
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Manual approval gate'
+            inputs:
+              notifyUsers: 'sidschow1972@gmail.com'
+              instructions: |
+                Review the Terraform plan output in the TerraformPlan job logs above.
+                Approve to apply the changes to Azure. Reject to abort the pipeline.
+              timeoutInMinutes: 1440
+
+      # ── Job 3: Apply ───────────────────────────────────────────────
+      # Only runs after the approval gate passes. Downloads the exact
+      # plan file that was reviewed and applies it. No -auto-approve
+      # flag needed because we pass the pre-computed plan file directly.
+      - job: TerraformApply
+        displayName: 'Terraform Apply'
+        dependsOn: WaitForApproval
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: '1.7.5'
+
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Init'
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/infra'
+              backendServiceArm: 'myapp-service-connection'
+              backendAzureRmResourceGroupName: 'rg-tfstate'
+              backendAzureRmStorageAccountName: 'stmyapptfstatesid'
+              backendAzureRmContainerName: 'tfstate'
+              backendAzureRmKey: 'myapp.terraform.tfstate'
+
+          # Download the plan artifact published by TerraformPlan job.
+          - download: current
+            artifact: terraform-plan
+            displayName: 'Download plan artifact'
+
           - task: TerraformTaskV4@4
             displayName: 'Terraform Apply'
             inputs:
@@ -31,7 +108,9 @@ stages:
               command: 'apply'
               workingDirectory: '$(System.DefaultWorkingDirectory)/infra'
               environmentServiceNameAzureRM: 'myapp-service-connection'
-              commandOptions: '-auto-approve'
+              # Apply the saved plan file — not a fresh plan.
+              # This guarantees exactly what you reviewed gets deployed.
+              commandOptions: '$(Pipeline.Workspace)/terraform-plan/tfplan'
 
   - stage: Build
     dependsOn: Infrastructure
@@ -98,7 +177,7 @@ stages:
               done
               exit 1
             displayName: 'Smoke test production'
-
+      
   # Load Test stage — disabled, re-enable when ready
   # - stage: LoadTest
   #   dependsOn: Validate
