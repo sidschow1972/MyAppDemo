@@ -270,65 +270,28 @@ resource "azurerm_api_management_api_policy" "app" {
   api_management_name = azurerm_api_management.app.name
   resource_group_name = azurerm_resource_group.app.name
 
-  xml_content = <<XML
-<policies>
-  <inbound>
-    <base />
-    <!-- POLICY 1: Open access — removes the subscription key check.
-         By default APIM requires Ocp-Apim-Subscription-Key header (401 if missing).
-         Deleting it here makes the API public. In production remove this and
-         issue keys via the developer portal. -->
-    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
-    <!-- POLICY 2: Rate limit — 30 calls per 60 s per caller IP.
-         APIM returns 429 and does not hit the backend when exceeded.
-         counter-key uses the caller IP so each client has its own bucket. -->
-    <rate-limit-by-key calls="30" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
-    <!-- POLICY 3: CORS — lets browser JS call this API from any origin.
-         In production restrict allowed-origins to your frontend domain. -->
-    <cors allow-credentials="false">
-      <allowed-origins><origin>*</origin></allowed-origins>
-      <allowed-methods><method>GET</method><method>OPTIONS</method></allowed-methods>
-      <allowed-headers><header>Content-Type</header><header>Accept</header></allowed-headers>
-    </cors>
-    <!-- POLICY 4: Tag inbound — backend can see traffic came via APIM. -->
-    <set-header name="X-Forwarded-Via" exists-action="override">
-      <value>APIM-myapp-sid</value>
-    </set-header>
-  </inbound>
-  <backend>
-    <base />
-  </backend>
-  <outbound>
-    <base />
-    <!-- POLICY 5: Informational headers on every response.
-         X-Api-Version  — revision caller is talking to.
-         X-Request-Id   — paste into App Insights to find this exact call.
-         X-Powered-By   — documentation hint. -->
-    <set-header name="X-Api-Version" exists-action="override">
-      <value>1.0</value>
-    </set-header>
-    <set-header name="X-Request-Id" exists-action="override">
-      <value>@(context.RequestId.ToString())</value>
-    </set-header>
-    <set-header name="X-Powered-By" exists-action="override">
-      <value>Azure APIM + .NET 8</value>
-    </set-header>
-  </outbound>
-  <on-error>
-    <base />
-    <!-- POLICY 6: Uniform JSON error body.
-         return-response short-circuits normal flow and sends our custom shape.
-         Single quotes inside the C# expression avoid breaking the XML attribute. -->
-    <return-response>
-      <set-status code="@(context.Response != null ? context.Response.StatusCode : 500)"
-                  reason="@(context.Response != null ? context.Response.StatusReason : &apos;Error&apos;)" />
-      <set-header name="Content-Type" exists-action="override">
-        <value>application/json</value>
-      </set-header>
-      <set-body>@("{\"error\":\"" + (context.LastError != null ? context.LastError.Message : "error") + "\",\"status\":" + (context.Response != null ? context.Response.StatusCode.ToString() : "500") + ",\"requestId\":\"" + context.RequestId.ToString() + "\"}")</set-body>
-    </return-response>
-  </on-error>
-</policies>
-XML
+  xml_content = <<-XML
+    <policies>
+      <inbound>
+        <base />
+        <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+        <set-header name="X-Forwarded-Via" exists-action="override">
+          <value>APIM-myapp-sid</value>
+        </set-header>
+      </inbound>
+      <backend>
+        <base />
+      </backend>
+      <outbound>
+        <base />
+        <set-header name="X-Api-Version" exists-action="override">
+          <value>1.0</value>
+        </set-header>
+      </outbound>
+      <on-error>
+        <base />
+      </on-error>
+    </policies>
+  XML
 }
 
