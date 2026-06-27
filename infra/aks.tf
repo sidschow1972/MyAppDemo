@@ -28,7 +28,7 @@ resource "azurerm_kubernetes_cluster" "app" {
   # based on pending pods. Keeps cost low (1 node idle) and handles bursts (2 nodes).
   default_node_pool {
     name                = "system"
-    vm_size             = "Standard_B2s"
+    vm_size             = "Standard_D2s_v3"
     min_count           = 1
     max_count           = 2
     enable_auto_scaling = true
