@@ -306,7 +306,7 @@ resource "azurerm_api_management_api_policy" "app" {
         <base />
         <return-response>
           <set-status code="@(context.Response != null ? context.Response.StatusCode : 500)"
-                      reason="@(context.Response != null ? context.Response.StatusReason : &apos;Error&apos;)" />
+                      reason="Error" />
           <set-header name="Content-Type" exists-action="override">
             <value>application/json</value>
           </set-header>
