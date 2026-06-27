@@ -40,18 +40,19 @@ stages:
         pool:
           vmImage: ubuntu-latest
         steps:
-          - script: |
-              dotnet tool install --global dotnet-sonarscanner
-              dotnet sonarscanner begin \
-                /k:"sidschow1972_MyAppDemo" \
-                /o:"sidschow1972" \
-                /d:sonar.host.url="https://sonarcloud.io" \
-                /d:sonar.token="$SONAR_TOKEN"
-              dotnet build MyApp.Web/MyApp.Web.csproj --configuration Release
-              dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
-            displayName: 'SonarCloud analysis'
-            env:
-              SONAR_TOKEN: $(SONAR_TOKEN)
+          # SonarCloud analysis — disabled, re-enable when ready
+          # - script: |
+          #     dotnet tool install --global dotnet-sonarscanner
+          #     dotnet sonarscanner begin \
+          #       /k:"sidschow1972_MyAppDemo" \
+          #       /o:"sidschow1972" \
+          #       /d:sonar.host.url="https://sonarcloud.io" \
+          #       /d:sonar.token="$SONAR_TOKEN"
+          #     dotnet build MyApp.Web/MyApp.Web.csproj --configuration Release
+          #     dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+          #   displayName: 'SonarCloud analysis'
+          #   env:
+          #     SONAR_TOKEN: $(SONAR_TOKEN)
           - task: DotNetCoreCLI@2
             displayName: 'Publish'
             inputs:
@@ -98,17 +99,18 @@ stages:
               exit 1
             displayName: 'Smoke test production'
 
-  - stage: LoadTest
-    dependsOn: Validate
-    jobs:
-      - job: RunLoadTest
-        pool:
-          vmImage: ubuntu-latest
-        steps:
-          - task: AzureLoadTest@1
-            displayName: 'Run full load test'
-            inputs:
-              azureSubscription: 'myapp-service-connection'
-              loadTestConfigFile: 'loadtest/config.yaml'
-              loadTestResource: 'lt-myapp-sid'
-              resourceGroup: 'rg-myapp-prod'
+  # Load Test stage — disabled, re-enable when ready
+  # - stage: LoadTest
+  #   dependsOn: Validate
+  #   jobs:
+  #     - job: RunLoadTest
+  #       pool:
+  #         vmImage: ubuntu-latest
+  #       steps:
+  #         - task: AzureLoadTest@1
+  #           displayName: 'Run full load test'
+  #           inputs:
+  #             azureSubscription: 'myapp-service-connection'
+  #             loadTestConfigFile: 'loadtest/config.yaml'
+  #             loadTestResource: 'lt-myapp-sid'
+  #             resourceGroup: 'rg-myapp-prod'
