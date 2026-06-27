@@ -410,17 +410,26 @@ resource "azurerm_private_dns_zone_virtual_network_link" "apim" {
 }
 
 # The A record that maps the APIM gateway hostname to its private IP.
-# azurerm_api_management.app.private_ip_addresses[0] is the private IP that
-# Azure assigned to APIM's internal load balancer when it joined snet-apim.
 # TTL 300 (5 minutes) means App Gateway caches this for 5 minutes before
 # re-querying — short enough to pick up changes, long enough to avoid DNS
 # overhead on every request.
+#
+# Why count and not a direct reference?
+#   During the first apply, Terraform is recreating APIM from Consumption_0
+#   (no VNet, no private IPs) to Developer_1 (Internal VNet, private IP).
+#   While the old Consumption APIM still exists in state, private_ip_addresses
+#   is an empty list — indexing it with [0] causes a plan-time error.
+#   Using count = 0 when the list is empty lets the plan succeed. On the same
+#   apply, Terraform destroys the Consumption APIM and creates the Developer
+#   APIM (which gets a private IP). On the next apply the count flips to 1
+#   and the A record is created. Subsequent applies are idempotent.
 resource "azurerm_private_dns_a_record" "apim_gateway" {
+  count               = length(azurerm_api_management.app.private_ip_addresses) > 0 ? 1 : 0
   name                = "apim-myapp-sid"
   zone_name           = azurerm_private_dns_zone.apim.name
   resource_group_name = azurerm_resource_group.app.name
   ttl                 = 300
-  records             = [azurerm_api_management.app.private_ip_addresses[0]]
+  records             = azurerm_api_management.app.private_ip_addresses
 }
 
 # ── Private endpoint for App Service ─────────────────────────────────────────
