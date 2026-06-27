@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weather Trends — Last 6 Months</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    header p {
+      color: #94a3b8;
+      margin-top: 0.4rem;
+      font-size: 0.95rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 768px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 1.5rem;
+      border: 1px solid #334155;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1rem;
+    }
+
+    .card.full-width {
+      grid-column: 1 / -1;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      grid-column: 1 / -1;
+    }
+
+    .stat {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      border: 1px solid #334155;
+      text-align: center;
+    }
+
+    .stat .label {
+      font-size: 0.8rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat .value {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-top: 0.25rem;
+    }
+
+    .stat .value.hot  { color: #f97316; }
+    .stat .value.cold { color: #38bdf8; }
+    .stat .value.rain { color: #818cf8; }
+
+    #loading {
+      text-align: center;
+      padding: 4rem;
+      color: #64748b;
+      font-size: 1.1rem;
+      grid-column: 1 / -1;
+    }
+
+    #error {
+      display: none;
+      text-align: center;
+      padding: 2rem;
+      color: #f87171;
+      grid-column: 1 / -1;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Weather Trends</h1>
+    <p id="subtitle">Loading data...</p>
+  </header>
+
+  <div class="grid" id="dashboard">
+    <div id="loading">Fetching weather data from Open-Meteo...</div>
+    <div id="error">Failed to load weather data. Please try again later.</div>
+  </div>
+
+  <script>
+    async function loadWeather() {
+      try {
+        const res = await fetch('/api/weather/trends');
+        if (!res.ok) throw new Error('API error');
+        const data = await res.json();
+
+        document.getElementById('loading').remove();
+        document.getElementById('subtitle').textContent =
+          `${data.location} — Last 6 months`;
+
+        const labels     = data.trends.map(t => t.month);
+        const maxTemps   = data.trends.map(t => t.avgMaxTemp);
+        const minTemps   = data.trends.map(t => t.avgMinTemp);
+        const precip     = data.trends.map(t => t.totalPrecipitation);
+
+        const avgMax  = (maxTemps.reduce((a,b) => a+b, 0) / maxTemps.length).toFixed(1);
+        const avgMin  = (minTemps.reduce((a,b) => a+b, 0) / minTemps.length).toFixed(1);
+        const totPrec = precip.reduce((a,b) => a+b, 0).toFixed(1);
+
+        // Stat cards
+        const stats = document.createElement('div');
+        stats.className = 'stats';
+        stats.innerHTML = `
+          <div class="stat">
+            <div class="label">Avg High Temp</div>
+            <div class="value hot">${avgMax}°C</div>
+          </div>
+          <div class="stat">
+            <div class="label">Avg Low Temp</div>
+            <div class="value cold">${avgMin}°C</div>
+          </div>
+          <div class="stat">
+            <div class="label">Total Precipitation</div>
+            <div class="value rain">${totPrec}mm</div>
+          </div>
+        `;
+        document.getElementById('dashboard').appendChild(stats);
+
+        // Temperature line chart
+        const tempCard = document.createElement('div');
+        tempCard.className = 'card';
+        tempCard.innerHTML = '<h2>Monthly Temperature (°C)</h2><canvas id="tempChart"></canvas>';
+        document.getElementById('dashboard').appendChild(tempCard);
+
+        new Chart(document.getElementById('tempChart'), {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Avg High',
+                data: maxTemps,
+                borderColor: '#f97316',
+                backgroundColor: 'rgba(249,115,22,0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 5,
+              },
+              {
+                label: 'Avg Low',
+                data: minTemps,
+                borderColor: '#38bdf8',
+                backgroundColor: 'rgba(56,189,248,0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 5,
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { labels: { color: '#94a3b8' } } },
+            scales: {
+              x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+              y: { ticks: { color: '#64748b' }, grid: { color: '#334155' } }
+            }
+          }
+        });
+
+        // Precipitation bar chart
+        const precipCard = document.createElement('div');
+        precipCard.className = 'card';
+        precipCard.innerHTML = '<h2>Monthly Precipitation (mm)</h2><canvas id="precipChart"></canvas>';
+        document.getElementById('dashboard').appendChild(precipCard);
+
+        new Chart(document.getElementById('precipChart'), {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Precipitation (mm)',
+              data: precip,
+              backgroundColor: 'rgba(129,140,248,0.7)',
+              borderColor: '#818cf8',
+              borderWidth: 1,
+              borderRadius: 6,
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { labels: { color: '#94a3b8' } } },
+            scales: {
+              x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+              y: { ticks: { color: '#64748b' }, grid: { color: '#334155' } }
+            }
+          }
+        });
+
+        // Trend summary table
+        const tableCard = document.createElement('div');
+        tableCard.className = 'card full-width';
+        tableCard.innerHTML = `
+          <h2>Monthly Summary</h2>
+          <table style="width:100%;border-collapse:collapse;margin-top:0.75rem">
+            <thead>
+              <tr style="color:#64748b;font-size:0.8rem;text-transform:uppercase">
+                <th style="text-align:left;padding:0.5rem">Month</th>
+                <th style="text-align:right;padding:0.5rem">Avg High (°C)</th>
+                <th style="text-align:right;padding:0.5rem">Avg Low (°C)</th>
+                <th style="text-align:right;padding:0.5rem">Precipitation (mm)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.trends.map(t => `
+                <tr style="border-top:1px solid #334155">
+                  <td style="padding:0.6rem 0.5rem">${t.month}</td>
+                  <td style="text-align:right;padding:0.6rem 0.5rem;color:#f97316">${t.avgMaxTemp}</td>
+                  <td style="text-align:right;padding:0.6rem 0.5rem;color:#38bdf8">${t.avgMinTemp}</td>
+                  <td style="text-align:right;padding:0.6rem 0.5rem;color:#818cf8">${t.totalPrecipitation}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        `;
+        document.getElementById('dashboard').appendChild(tableCard);
+
+      } catch (e) {
+        document.getElementById('loading')?.remove();
+        document.getElementById('error').style.display = 'block';
+      }
+    }
+
+    loadWeather();
+  </script>
+</body>
+</html>

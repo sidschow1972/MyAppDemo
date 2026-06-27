@@ -1,9 +1,9 @@
 using Azure.Identity;
+using MyApp.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Pull config from Key Vault using the App Service's managed identity.
-// "KeyVaultUri" matches the app_settings value set in the Terraform azurerm_linux_web_app resource.
 var keyVaultUri = builder.Configuration["KeyVaultUri"];
 if (!string.IsNullOrEmpty(keyVaultUri))
 {
@@ -12,16 +12,22 @@ if (!string.IsNullOrEmpty(keyVaultUri))
         new DefaultAzureCredential());
 }
 
-// Application Insights — connection string comes from app_settings,
-// matches azurerm_application_insights in Terraform.
 builder.Services.AddApplicationInsightsTelemetry();
+
+// Register WeatherService with an HttpClient
+builder.Services.AddHttpClient<WeatherService>();
 
 var app = builder.Build();
 
-// Health check endpoint — this is what the pipeline's smoke test step
-// (curl .../health) hits after deploying to the staging slot, before swap.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy", timestamp = DateTime.UtcNow }));
 
-app.MapGet("/", () => "MyApp is running.");
+app.MapGet("/api/weather/trends", async (WeatherService weather) =>
+{
+    var trends = await weather.GetSixMonthTrendsAsync();
+    return Results.Ok(trends);
+});
 
 app.Run();
