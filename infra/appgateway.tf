@@ -408,19 +408,11 @@ resource "azurerm_api_management_api_policy" "app" {
     </set-header>
 
     <!--
-      POLICY 7: Response caching for weather endpoints
-      ─────────────────────────────────────────────────
-      Caches the backend response in APIM for 300 seconds (5 minutes).
-      Subsequent identical requests are served from the cache without
-      hitting the App Service at all — reducing latency and backend load.
-
-      vary-by-developer / vary-by-developer-groups: false = one shared cache
-      for all callers (not per-user). Fine for public weather data.
-      duration: cache lifetime in seconds.
+      NOTE: Response caching (cache-store / cache-lookup) is NOT available
+      on the Consumption tier — it requires Developer tier or higher, or
+      an external Azure Redis Cache linked to APIM. To enable caching in
+      production, upgrade the APIM tier or wire up a Redis instance.
     -->
-    <cache-store duration="300"
-                 vary-by-developer="false"
-                 vary-by-developer-groups="false" />
 
   </outbound>
 
@@ -457,56 +449,3 @@ resource "azurerm_api_management_api_policy" "app" {
 XML
 }
 
-# -----------------------------------------------------------------------
-# Cache lookup policy on the weather operations
-# The cache-store above saves the response; cache-lookup retrieves it.
-# Both must be present for caching to work end-to-end.
-# This is added at operation level so only weather calls are cached
-# (health checks should always hit the real backend).
-# -----------------------------------------------------------------------
-resource "azurerm_api_management_api_operation_policy" "weather_trends_cache" {
-  operation_id        = azurerm_api_management_api_operation.weather_trends.operation_id
-  api_name            = azurerm_api_management_api.app.name
-  api_management_name = azurerm_api_management.app.name
-  resource_group_name = azurerm_resource_group.app.name
-
-  xml_content = <<XML
-<policies>
-  <inbound>
-    <base />
-    <!--
-      cache-lookup: before forwarding to backend, check the APIM cache.
-      If a cached response exists for this URL it is returned immediately.
-      vary-by-developer/groups: false = shared cache across all callers.
-    -->
-    <cache-lookup vary-by-developer="false"
-                  vary-by-developer-groups="false"
-                  allow-private-response-caching="false" />
-  </inbound>
-  <backend><base /></backend>
-  <outbound><base /></outbound>
-  <on-error><base /></on-error>
-</policies>
-XML
-}
-
-resource "azurerm_api_management_api_operation_policy" "weather_forecast_cache" {
-  operation_id        = azurerm_api_management_api_operation.weather_forecast.operation_id
-  api_name            = azurerm_api_management_api.app.name
-  api_management_name = azurerm_api_management.app.name
-  resource_group_name = azurerm_resource_group.app.name
-
-  xml_content = <<XML
-<policies>
-  <inbound>
-    <base />
-    <cache-lookup vary-by-developer="false"
-                  vary-by-developer-groups="false"
-                  allow-private-response-caching="false" />
-  </inbound>
-  <backend><base /></backend>
-  <outbound><base /></outbound>
-  <on-error><base /></on-error>
-</policies>
-XML
-}
