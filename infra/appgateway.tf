@@ -275,6 +275,7 @@ resource "azurerm_api_management_api_policy" "app" {
       <inbound>
         <base />
         <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+        <rate-limit-by-key calls="30" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
         <set-header name="X-Forwarded-Via" exists-action="override">
           <value>APIM-myapp-sid</value>
         </set-header>
