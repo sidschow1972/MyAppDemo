@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Weather Trends — Last 6 Months</title>
+  <title>Weather Trends &amp; Forecast</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -21,29 +21,18 @@
       margin-bottom: 2.5rem;
     }
 
-    header h1 {
-      font-size: 2rem;
-      font-weight: 700;
-      color: #f8fafc;
-    }
-
-    header p {
-      color: #94a3b8;
-      margin-top: 0.4rem;
-      font-size: 0.95rem;
-    }
+    header h1 { font-size: 2rem; font-weight: 700; color: #f8fafc; }
+    header p  { color: #94a3b8; margin-top: 0.4rem; font-size: 0.95rem; }
 
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 1.5rem;
-      max-width: 1200px;
+      max-width: 1300px;
       margin: 0 auto;
     }
 
-    @media (max-width: 768px) {
-      .grid { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
 
     .card {
       background: #1e293b;
@@ -53,7 +42,7 @@
     }
 
     .card h2 {
-      font-size: 1rem;
+      font-size: 0.85rem;
       font-weight: 600;
       color: #94a3b8;
       text-transform: uppercase;
@@ -61,41 +50,55 @@
       margin-bottom: 1rem;
     }
 
-    .card.full-width {
-      grid-column: 1 / -1;
-    }
+    .card.full-width { grid-column: 1 / -1; }
 
     .stats {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 1rem;
       grid-column: 1 / -1;
     }
 
+    @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
     .stat {
       background: #1e293b;
       border-radius: 12px;
-      padding: 1.25rem 1.5rem;
+      padding: 1.25rem 1rem;
       border: 1px solid #334155;
       text-align: center;
     }
 
-    .stat .label {
-      font-size: 0.8rem;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+    .stat .label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat .value { font-size: 1.6rem; font-weight: 700; margin-top: 0.25rem; }
+    .stat .value.hot    { color: #f97316; }
+    .stat .value.cold   { color: #38bdf8; }
+    .stat .value.rain   { color: #818cf8; }
+    .stat .value.trend  { color: #34d399; }
+    .stat .value.warn   { color: #fb923c; }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-top: 0.3rem;
     }
 
-    .stat .value {
-      font-size: 2rem;
-      font-weight: 700;
-      margin-top: 0.25rem;
-    }
+    .badge.high   { background: #14532d; color: #4ade80; }
+    .badge.medium { background: #713f12; color: #fbbf24; }
+    .badge.low    { background: #450a0a; color: #f87171; }
 
-    .stat .value.hot  { color: #f97316; }
-    .stat .value.cold { color: #38bdf8; }
-    .stat .value.rain { color: #818cf8; }
+    .section-title {
+      grid-column: 1 / -1;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #334155;
+      margin-top: 0.5rem;
+    }
 
     #loading {
       text-align: center;
@@ -112,158 +115,200 @@
       color: #f87171;
       grid-column: 1 / -1;
     }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
+    th { text-align: left; padding: 0.5rem; color: #64748b; font-size: 0.75rem; text-transform: uppercase; }
+    td { padding: 0.6rem 0.5rem; border-top: 1px solid #334155; font-size: 0.9rem; }
   </style>
 </head>
 <body>
   <header>
-    <h1>Weather Trends</h1>
+    <h1>Weather Trends &amp; Forecast</h1>
     <p id="subtitle">Loading data...</p>
   </header>
 
   <div class="grid" id="dashboard">
-    <div id="loading">Fetching weather data from Open-Meteo...</div>
+    <div id="loading">Fetching weather data and computing predictions...</div>
     <div id="error">Failed to load weather data. Please try again later.</div>
   </div>
 
   <script>
+    const CHART_DEFAULTS = {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#94a3b8' } } },
+      scales: {
+        x: { ticks: { color: '#64748b' }, grid: { color: '#334155' } },
+        y: { ticks: { color: '#64748b' }, grid: { color: '#334155' } }
+      }
+    };
+
+    function addCard(className, title, canvasId) {
+      const card = document.createElement('div');
+      card.className = `card ${className}`;
+      card.innerHTML = `<h2>${title}</h2><canvas id="${canvasId}"></canvas>`;
+      document.getElementById('dashboard').appendChild(card);
+      return document.getElementById(canvasId);
+    }
+
+    function addSectionTitle(text) {
+      const el = document.createElement('div');
+      el.className = 'section-title';
+      el.textContent = text;
+      document.getElementById('dashboard').appendChild(el);
+    }
+
     async function loadWeather() {
       try {
-        const res = await fetch('/api/weather/trends');
-        if (!res.ok) throw new Error('API error');
+        const res = await fetch('/api/weather/forecast');
+        if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
 
         document.getElementById('loading').remove();
         document.getElementById('subtitle').textContent =
-          `${data.location} — Last 6 months`;
+          `${data.location} — 6 months historical + 6 months forecast`;
 
-        const labels     = data.trends.map(t => t.month);
-        const maxTemps   = data.trends.map(t => t.avgMaxTemp);
-        const minTemps   = data.trends.map(t => t.avgMinTemp);
-        const precip     = data.trends.map(t => t.totalPrecipitation);
+        const hLabels   = data.historical.map(t => t.month);
+        const hMaxTemps = data.historical.map(t => t.avgMaxTemp);
+        const hMinTemps = data.historical.map(t => t.avgMinTemp);
+        const hPrecip   = data.historical.map(t => t.totalPrecipitation);
 
-        const avgMax  = (maxTemps.reduce((a,b) => a+b, 0) / maxTemps.length).toFixed(1);
-        const avgMin  = (minTemps.reduce((a,b) => a+b, 0) / minTemps.length).toFixed(1);
-        const totPrec = precip.reduce((a,b) => a+b, 0).toFixed(1);
+        const fLabels   = data.predictions.map(p => p.month);
+        const fMaxTemps = data.predictions.map(p => p.predictedMaxTemp);
+        const fMinTemps = data.predictions.map(p => p.predictedMinTemp);
+        const fPrecip   = data.predictions.map(p => p.predictedPrecipitation);
 
-        // Stat cards
+        const avgMax  = (hMaxTemps.reduce((a,b)=>a+b,0)/hMaxTemps.length).toFixed(1);
+        const avgMin  = (hMinTemps.reduce((a,b)=>a+b,0)/hMinTemps.length).toFixed(1);
+        const totPrec = hPrecip.reduce((a,b)=>a+b,0).toFixed(1);
+
+        // ── Stat cards ────────────────────────────────────────────────
         const stats = document.createElement('div');
         stats.className = 'stats';
         stats.innerHTML = `
           <div class="stat">
-            <div class="label">Avg High Temp</div>
+            <div class="label">Avg High (Historical)</div>
             <div class="value hot">${avgMax}°C</div>
           </div>
           <div class="stat">
-            <div class="label">Avg Low Temp</div>
+            <div class="label">Avg Low (Historical)</div>
             <div class="value cold">${avgMin}°C</div>
           </div>
           <div class="stat">
             <div class="label">Total Precipitation</div>
             <div class="value rain">${totPrec}mm</div>
           </div>
+          <div class="stat">
+            <div class="label">Temperature Trend</div>
+            <div class="value trend">${data.temperatureTrend}</div>
+          </div>
+          <div class="stat">
+            <div class="label">Rainfall Trend</div>
+            <div class="value warn">${data.precipitationTrend}</div>
+          </div>
         `;
         document.getElementById('dashboard').appendChild(stats);
 
-        // Temperature line chart
-        const tempCard = document.createElement('div');
-        tempCard.className = 'card';
-        tempCard.innerHTML = '<h2>Monthly Temperature (°C)</h2><canvas id="tempChart"></canvas>';
-        document.getElementById('dashboard').appendChild(tempCard);
+        // ── Section: Historical ───────────────────────────────────────
+        addSectionTitle('Historical Data — Last 6 Months');
 
-        new Chart(document.getElementById('tempChart'), {
+        // Temperature line chart (historical)
+        new Chart(addCard('', 'Monthly Temperature (°C)', 'tempChart'), {
           type: 'line',
           data: {
-            labels,
+            labels: hLabels,
             datasets: [
-              {
-                label: 'Avg High',
-                data: maxTemps,
-                borderColor: '#f97316',
-                backgroundColor: 'rgba(249,115,22,0.1)',
-                fill: true,
-                tension: 0.4,
-                pointRadius: 5,
-              },
-              {
-                label: 'Avg Low',
-                data: minTemps,
-                borderColor: '#38bdf8',
-                backgroundColor: 'rgba(56,189,248,0.1)',
-                fill: true,
-                tension: 0.4,
-                pointRadius: 5,
-              }
+              { label: 'Avg High', data: hMaxTemps, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', fill: true, tension: 0.4, pointRadius: 5 },
+              { label: 'Avg Low',  data: hMinTemps, borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.1)',  fill: true, tension: 0.4, pointRadius: 5 }
             ]
           },
-          options: {
-            responsive: true,
-            plugins: { legend: { labels: { color: '#94a3b8' } } },
-            scales: {
-              x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
-              y: { ticks: { color: '#64748b' }, grid: { color: '#334155' } }
-            }
-          }
+          options: CHART_DEFAULTS
         });
 
-        // Precipitation bar chart
-        const precipCard = document.createElement('div');
-        precipCard.className = 'card';
-        precipCard.innerHTML = '<h2>Monthly Precipitation (mm)</h2><canvas id="precipChart"></canvas>';
-        document.getElementById('dashboard').appendChild(precipCard);
-
-        new Chart(document.getElementById('precipChart'), {
+        // Precipitation bar chart (historical)
+        new Chart(addCard('', 'Monthly Precipitation (mm)', 'precipChart'), {
           type: 'bar',
           data: {
-            labels,
-            datasets: [{
-              label: 'Precipitation (mm)',
-              data: precip,
-              backgroundColor: 'rgba(129,140,248,0.7)',
-              borderColor: '#818cf8',
-              borderWidth: 1,
-              borderRadius: 6,
-            }]
+            labels: hLabels,
+            datasets: [{ label: 'Precipitation (mm)', data: hPrecip, backgroundColor: 'rgba(129,140,248,0.7)', borderColor: '#818cf8', borderWidth: 1, borderRadius: 6 }]
           },
-          options: {
-            responsive: true,
-            plugins: { legend: { labels: { color: '#94a3b8' } } },
-            scales: {
-              x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
-              y: { ticks: { color: '#64748b' }, grid: { color: '#334155' } }
-            }
-          }
+          options: CHART_DEFAULTS
         });
 
-        // Trend summary table
+        // ── Section: Forecast ─────────────────────────────────────────
+        addSectionTitle('AI Forecast — Next 6 Months (Linear Regression)');
+
+        // Combined historical + forecast temperature chart
+        const allLabels   = [...hLabels, ...fLabels];
+        const histMaxPad  = [...hMaxTemps, ...Array(fLabels.length).fill(null)];
+        const histMinPad  = [...hMinTemps, ...Array(fLabels.length).fill(null)];
+        const predMaxPad  = [...Array(hLabels.length).fill(null), ...fMaxTemps];
+        const predMinPad  = [...Array(hLabels.length).fill(null), ...fMinTemps];
+
+        new Chart(addCard('full-width', 'Temperature Forecast — Historical vs Predicted (°C)', 'forecastTempChart'), {
+          type: 'line',
+          data: {
+            labels: allLabels,
+            datasets: [
+              { label: 'Historical High', data: histMaxPad, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.08)', fill: true, tension: 0.4, pointRadius: 4 },
+              { label: 'Historical Low',  data: histMinPad, borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.08)',  fill: true, tension: 0.4, pointRadius: 4 },
+              { label: 'Predicted High',  data: predMaxPad, borderColor: '#fb923c', borderDash: [6,3], backgroundColor: 'rgba(251,146,60,0.08)',  fill: true, tension: 0.4, pointRadius: 5, pointStyle: 'triangle' },
+              { label: 'Predicted Low',   data: predMinPad, borderColor: '#7dd3fc', borderDash: [6,3], backgroundColor: 'rgba(125,211,252,0.08)', fill: true, tension: 0.4, pointRadius: 5, pointStyle: 'triangle' }
+            ]
+          },
+          options: CHART_DEFAULTS
+        });
+
+        // Forecast precipitation chart
+        new Chart(addCard('full-width', 'Precipitation Forecast — Historical vs Predicted (mm)', 'forecastPrecipChart'), {
+          type: 'bar',
+          data: {
+            labels: allLabels,
+            datasets: [
+              { label: 'Historical', data: [...hPrecip, ...Array(fLabels.length).fill(null)], backgroundColor: 'rgba(129,140,248,0.7)', borderColor: '#818cf8', borderWidth: 1, borderRadius: 6 },
+              { label: 'Predicted',  data: [...Array(hLabels.length).fill(null), ...fPrecip],  backgroundColor: 'rgba(52,211,153,0.7)',  borderColor: '#34d399', borderWidth: 1, borderRadius: 6 }
+            ]
+          },
+          options: CHART_DEFAULTS
+        });
+
+        // ── Forecast table ────────────────────────────────────────────
         const tableCard = document.createElement('div');
         tableCard.className = 'card full-width';
         tableCard.innerHTML = `
-          <h2>Monthly Summary</h2>
-          <table style="width:100%;border-collapse:collapse;margin-top:0.75rem">
+          <h2>6-Month Forecast Summary</h2>
+          <table>
             <thead>
-              <tr style="color:#64748b;font-size:0.8rem;text-transform:uppercase">
-                <th style="text-align:left;padding:0.5rem">Month</th>
-                <th style="text-align:right;padding:0.5rem">Avg High (°C)</th>
-                <th style="text-align:right;padding:0.5rem">Avg Low (°C)</th>
-                <th style="text-align:right;padding:0.5rem">Precipitation (mm)</th>
+              <tr>
+                <th>Month</th>
+                <th style="text-align:right">Predicted High (°C)</th>
+                <th style="text-align:right">Predicted Low (°C)</th>
+                <th style="text-align:right">Predicted Precipitation (mm)</th>
+                <th style="text-align:right">Confidence</th>
               </tr>
             </thead>
             <tbody>
-              ${data.trends.map(t => `
-                <tr style="border-top:1px solid #334155">
-                  <td style="padding:0.6rem 0.5rem">${t.month}</td>
-                  <td style="text-align:right;padding:0.6rem 0.5rem;color:#f97316">${t.avgMaxTemp}</td>
-                  <td style="text-align:right;padding:0.6rem 0.5rem;color:#38bdf8">${t.avgMinTemp}</td>
-                  <td style="text-align:right;padding:0.6rem 0.5rem;color:#818cf8">${t.totalPrecipitation}</td>
+              ${data.predictions.map(p => `
+                <tr>
+                  <td>${p.month}</td>
+                  <td style="text-align:right;color:#f97316">${p.predictedMaxTemp}</td>
+                  <td style="text-align:right;color:#38bdf8">${p.predictedMinTemp}</td>
+                  <td style="text-align:right;color:#818cf8">${p.predictedPrecipitation}</td>
+                  <td style="text-align:right"><span class="badge ${p.confidence.toLowerCase()}">${p.confidence}</span></td>
                 </tr>`).join('')}
             </tbody>
           </table>
+          <p style="margin-top:1rem;font-size:0.75rem;color:#475569">
+            Predictions use ordinary least squares linear regression on the last 6 months of data.
+            Slope: temperature ${data.temperatureSlope > 0 ? '+' : ''}${data.temperatureSlope}°C/month,
+            precipitation ${data.precipitationSlope > 0 ? '+' : ''}${data.precipitationSlope}mm/month.
+          </p>
         `;
         document.getElementById('dashboard').appendChild(tableCard);
 
       } catch (e) {
         document.getElementById('loading')?.remove();
         document.getElementById('error').style.display = 'block';
+        document.getElementById('error').textContent = 'Error: ' + e.message;
       }
     }
 
