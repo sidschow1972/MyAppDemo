@@ -275,11 +275,9 @@ resource "azurerm_api_management_api_policy" "app" {
       <inbound>
         <base />
         <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
-        <!-- rate-limit: shared counter across all callers — 30 calls per 60s.
-             Consumption_0 does not support rate-limit-by-key (per-IP counters)
-             but does support rate-limit (global shared bucket). Returns 429
-             when exceeded without hitting the backend. -->
-        <rate-limit calls="30" renewal-period="60" />
+        <!-- NOTE: rate-limit must be applied at Product scope, not API scope.
+             rate-limit-by-key requires a paid tier. To add rate limiting,
+             create an azurerm_api_management_product with a rate-limit policy. -->
         <cors allow-credentials="false">
           <allowed-origins><origin>*</origin></allowed-origins>
           <allowed-methods><method>GET</method><method>OPTIONS</method></allowed-methods>
