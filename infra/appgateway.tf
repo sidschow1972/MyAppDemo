@@ -6,6 +6,7 @@
 # private IP addresses to divide into subnets.
 # -----------------------------------------------------------------------
 resource "azurerm_virtual_network" "app" {
+  count               = var.deploy_app_gateway ? 1 : 0
   name                = "vnet-myapp-prod"
   resource_group_name = azurerm_resource_group.app.name
   location            = azurerm_resource_group.app.location
@@ -16,19 +17,18 @@ resource "azurerm_virtual_network" "app" {
 # dedicated subnet. No other resource types can share this subnet.
 # "10.0.1.0/24" gives 256 addresses, more than enough for the gateway.
 resource "azurerm_subnet" "appgw" {
+  count                = var.deploy_app_gateway ? 1 : 0
   name                 = "snet-appgw"
   resource_group_name  = azurerm_resource_group.app.name
-  virtual_network_name = azurerm_virtual_network.app.name
+  virtual_network_name = azurerm_virtual_network.app[0].name
   address_prefixes     = ["10.0.1.0/24"]
 }
 
-# APIM subnet — reserved for a future move of APIM into the VNet.
-# Consumption tier APIM doesn't require a subnet today, but having
-# it ready means no refactoring when we upgrade to a higher APIM tier.
 resource "azurerm_subnet" "apim" {
+  count                = var.deploy_app_gateway ? 1 : 0
   name                 = "snet-apim"
   resource_group_name  = azurerm_resource_group.app.name
-  virtual_network_name = azurerm_virtual_network.app.name
+  virtual_network_name = azurerm_virtual_network.app[0].name
   address_prefixes     = ["10.0.2.0/24"]
 }
 
@@ -41,6 +41,7 @@ resource "azurerm_subnet" "apim" {
 # and never changes, even if the gateway is stopped.
 # -----------------------------------------------------------------------
 resource "azurerm_public_ip" "appgw" {
+  count               = var.deploy_app_gateway ? 1 : 0
   name                = "pip-appgw-prod"
   resource_group_name = azurerm_resource_group.app.name
   location            = azurerm_resource_group.app.location
@@ -55,6 +56,7 @@ resource "azurerm_public_ip" "appgw" {
 # Traffic flow: Internet → App Gateway → APIM → App Service
 # -----------------------------------------------------------------------
 resource "azurerm_application_gateway" "app" {
+  count               = var.deploy_app_gateway ? 1 : 0
   name                = "agw-myapp-prod"
   resource_group_name = azurerm_resource_group.app.name
   location            = azurerm_resource_group.app.location
@@ -87,14 +89,14 @@ resource "azurerm_application_gateway" "app" {
   # The gateway's internal NICs get IPs from this subnet.
   gateway_ip_configuration {
     name      = "appgw-ip-config"
-    subnet_id = azurerm_subnet.appgw.id
+    subnet_id = azurerm_subnet.appgw[0].id
   }
 
   # Frontend IP — binds the gateway to the public IP created above.
   # This is the IP address clients connect to from the internet.
   frontend_ip_configuration {
     name                 = "appgw-frontend-ip"
-    public_ip_address_id = azurerm_public_ip.appgw.id
+    public_ip_address_id = azurerm_public_ip.appgw[0].id
   }
 
   # Frontend ports — defines which ports the gateway listens on.
