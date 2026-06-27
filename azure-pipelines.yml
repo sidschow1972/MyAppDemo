@@ -90,7 +90,12 @@ stages:
           vmImage: ubuntu-latest
         steps:
           - script: |
-              curl -f https://app-myapp-sid.azurewebsites.net/health || exit 1
+              for i in {1..10}; do
+                echo "Attempt $i..."
+                curl -f https://app-myapp-sid.azurewebsites.net/health && exit 0
+                sleep 15
+              done
+              exit 1
             displayName: 'Smoke test production'
 
   - stage: LoadTest
