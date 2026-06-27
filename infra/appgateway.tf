@@ -275,7 +275,13 @@ resource "azurerm_api_management_api_policy" "app" {
       <inbound>
         <base />
         <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
-        <rate-limit-by-key calls="30" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
+        <!-- rate-limit-by-key is not available on Consumption_0 (free tier).
+             Upgrade to paid Consumption or Developer tier to enable it. -->
+        <cors allow-credentials="false">
+          <allowed-origins><origin>*</origin></allowed-origins>
+          <allowed-methods><method>GET</method><method>OPTIONS</method></allowed-methods>
+          <allowed-headers><header>Content-Type</header><header>Accept</header></allowed-headers>
+        </cors>
         <set-header name="X-Forwarded-Via" exists-action="override">
           <value>APIM-myapp-sid</value>
         </set-header>
