@@ -318,17 +318,10 @@ resource "azurerm_private_dns_zone_virtual_network_link" "apim" {
 }
 
 # Maps apim-myapp-sid.azure-api.net → APIM's private IP.
-#
-# Why count instead of a direct reference?
-#   During the first apply, Terraform transitions APIM from Consumption_0
-#   (no VNet, no private IPs) to Developer_1 (Internal VNet, private IP).
-#   While the old Consumption APIM exists in state, private_ip_addresses is
-#   an empty list — indexing it with [0] causes a plan-time error. Using
-#   count = 0 when the list is empty lets the plan succeed. On the next apply
-#   (after APIM is provisioned with a private IP) count flips to 1 and the
-#   A record is created. Subsequent applies are idempotent.
+# Terraform marks private_ip_addresses as "known after apply" at plan time
+# and resolves it during apply after APIM is provisioned. The implicit
+# dependency on azurerm_api_management.app ensures correct ordering.
 resource "azurerm_private_dns_a_record" "apim_gateway" {
-  count               = length(azurerm_api_management.app.private_ip_addresses) > 0 ? 1 : 0
   name                = "apim-myapp-sid"
   zone_name           = azurerm_private_dns_zone.apim.name
   resource_group_name = azurerm_resource_group.app.name
