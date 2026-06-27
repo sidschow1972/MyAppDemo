@@ -303,6 +303,14 @@ resource "azurerm_api_management_api_policy" "app" {
       </outbound>
       <on-error>
         <base />
+        <return-response>
+          <set-status code="@(context.Response != null ? context.Response.StatusCode : 500)"
+                      reason="@(context.Response != null ? context.Response.StatusReason : &apos;Error&apos;)" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>@("{\"error\":\"" + (context.LastError != null ? context.LastError.Message : "error") + "\",\"status\":" + (context.Response != null ? context.Response.StatusCode.ToString() : "500") + ",\"requestId\":\"" + context.RequestId.ToString() + "\"}")</set-body>
+        </return-response>
       </on-error>
     </policies>
   XML
