@@ -272,127 +272,38 @@ resource "azurerm_api_management_api_policy" "app" {
 
   xml_content = <<XML
 <policies>
-
-  <!-- ═══════════════════════════════════════════════════════════════
-       INBOUND — runs before the request reaches the backend
-       ═══════════════════════════════════════════════════════════════ -->
   <inbound>
     <base />
-
-    <!--
-      POLICY 1: Remove subscription key requirement
-      ─────────────────────────────────────────────
-      By default APIM requires callers to pass a secret key in the header
-      "Ocp-Apim-Subscription-Key". Without a key it returns 401 Unauthorized.
-      Deleting the header here tells APIM to skip that check — making the
-      API open for development. In production remove this line and issue
-      keys through the developer portal instead.
-    -->
+    <!-- POLICY 1: Open access — removes the subscription key check.
+         By default APIM requires Ocp-Apim-Subscription-Key header (401 if missing).
+         Deleting it here makes the API public. In production remove this and
+         issue keys via the developer portal. -->
     <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
-
-    <!--
-      POLICY 2: Rate limiting by caller IP
-      ─────────────────────────────────────
-      Allows each unique IP address a maximum of 30 calls per 60 seconds.
-      When the limit is hit APIM returns 429 Too Many Requests and does NOT
-      forward the request to the backend — protecting the App Service.
-
-      calls          → max requests allowed in the renewal-period
-      renewal-period → sliding window in seconds
-      counter-key    → what to count by (@(context.Request.IpAddress) = per IP)
-
-      Note: remaining-calls-header-name / retry-after-header-name are NOT
-      supported on the Consumption tier and must be omitted.
-    -->
-    <rate-limit-by-key calls="30"
-                       renewal-period="60"
-                       counter-key="@(context.Request.IpAddress)" />
-
-    <!--
-      POLICY 3: CORS (Cross-Origin Resource Sharing)
-      ───────────────────────────────────────────────
-      Browsers block JavaScript from calling APIs on a different domain unless
-      the server explicitly allows it. This injects the correct CORS headers
-      so any web page can call this API.
-
-      In production replace * with your actual frontend domain:
-        <origin>https://app-myapp-sid.azurewebsites.net</origin>
-    -->
+    <!-- POLICY 2: Rate limit — 30 calls per 60 s per caller IP.
+         APIM returns 429 and does not hit the backend when exceeded.
+         counter-key uses the caller IP so each client has its own bucket. -->
+    <rate-limit-by-key calls="30" renewal-period="60" counter-key="@(context.Request.IpAddress)" />
+    <!-- POLICY 3: CORS — lets browser JS call this API from any origin.
+         In production restrict allowed-origins to your frontend domain. -->
     <cors allow-credentials="false">
-      <allowed-origins>
-        <origin>*</origin>
-      </allowed-origins>
-      <allowed-methods>
-        <method>GET</method>
-        <method>OPTIONS</method>
-      </allowed-methods>
-      <allowed-headers>
-        <header>Content-Type</header>
-        <header>Accept</header>
-      </allowed-headers>
+      <allowed-origins><origin>*</origin></allowed-origins>
+      <allowed-methods><method>GET</method><method>OPTIONS</method></allowed-methods>
+      <allowed-headers><header>Content-Type</header><header>Accept</header></allowed-headers>
     </cors>
-
-    <!--
-      POLICY 4: Tag request with APIM origin
-      ───────────────────────────────────────
-      Injects a header into the request before it reaches the App Service.
-      The backend can read X-Forwarded-Via to know traffic came through APIM.
-      Useful for auditing and for routing logic in the backend.
-    -->
+    <!-- POLICY 4: Tag inbound — backend can see traffic came via APIM. -->
     <set-header name="X-Forwarded-Via" exists-action="override">
       <value>APIM-myapp-sid</value>
     </set-header>
-
   </inbound>
-
-  <!-- ═══════════════════════════════════════════════════════════════
-       BACKEND — controls HOW the request is sent to the App Service
-       IMPORTANT: do NOT include <base /> here when using <retry>.
-       <base /> already calls <forward-request> once. Combining it
-       with <retry><forward-request/></retry> would call it twice,
-       which APIM rejects with a 400 ValidationError.
-       ═══════════════════════════════════════════════════════════════ -->
   <backend>
-
-    <!--
-      POLICY 5: Retry on transient backend failures
-      ──────────────────────────────────────────────
-      If the App Service returns 500/502/503, APIM retries automatically
-      before giving up. This handles F1 cold-start 503s transparently.
-
-      condition: evaluated AFTER each attempt. We null-check context.Response
-                 because on the very first call no response object exists yet.
-      count:     max retries (3 = up to 4 total attempts)
-      interval:  seconds between retries
-      first-fast-retry: the first retry fires immediately (no interval wait)
-    -->
-    <retry condition="@(context.Response != null &amp;&amp; (context.Response.StatusCode == 500 || context.Response.StatusCode == 502 || context.Response.StatusCode == 503))"
-           count="3"
-           interval="2"
-           first-fast-retry="true">
-      <forward-request timeout="30" />
-    </retry>
-
+    <base />
   </backend>
-
-  <!-- ═══════════════════════════════════════════════════════════════
-       OUTBOUND — runs after the backend responds, before the caller
-       receives the response
-       ═══════════════════════════════════════════════════════════════ -->
   <outbound>
     <base />
-
-    <!--
-      POLICY 6: Informational response headers
-      ─────────────────────────────────────────
-      Adds metadata headers the caller can inspect in browser DevTools
-      (Network tab → Response Headers). Does not modify the body.
-
-      X-Api-Version : which API revision is serving the request
-      X-Request-Id  : unique GUID per request — paste into App Insights to
-                      find the exact log entry for this call
-      X-Powered-By  : documentation hint for API consumers
-    -->
+    <!-- POLICY 5: Informational headers on every response.
+         X-Api-Version  — revision caller is talking to.
+         X-Request-Id   — paste into App Insights to find this exact call.
+         X-Powered-By   — documentation hint. -->
     <set-header name="X-Api-Version" exists-action="override">
       <value>1.0</value>
     </set-header>
@@ -402,40 +313,21 @@ resource "azurerm_api_management_api_policy" "app" {
     <set-header name="X-Powered-By" exists-action="override">
       <value>Azure APIM + .NET 8</value>
     </set-header>
-
   </outbound>
-
-  <!-- ═══════════════════════════════════════════════════════════════
-       ON-ERROR — runs if any policy or backend call throws
-       ═══════════════════════════════════════════════════════════════ -->
   <on-error>
     <base />
-
-    <!--
-      POLICY 7: Standardised JSON error response
-      ───────────────────────────────────────────
-      Rewrites the response body to a consistent JSON shape whenever
-      something goes wrong (rate limit, backend error, policy exception).
-
-      <return-response> short-circuits normal processing — nothing runs
-      after it. We use a single-line @(...) expression instead of a
-      multi-line @{...} block to stay compatible with Consumption tier.
-
-      context.LastError?.Message : the APIM-level error that triggered on-error
-      context.Response?.StatusCode : HTTP status returned by the backend (if any)
-      context.RequestId : correlate with Application Insights using this GUID
-    -->
+    <!-- POLICY 6: Uniform JSON error body.
+         return-response short-circuits normal flow and sends our custom shape.
+         Single quotes inside the C# expression avoid breaking the XML attribute. -->
     <return-response>
       <set-status code="@(context.Response != null ? context.Response.StatusCode : 500)"
-                  reason="@(context.Response != null ? context.Response.StatusReason : "Error")" />
+                  reason="@(context.Response != null ? context.Response.StatusReason : &apos;Error&apos;)" />
       <set-header name="Content-Type" exists-action="override">
         <value>application/json</value>
       </set-header>
-      <set-body>@("{\"error\":\"" + (context.LastError != null ? context.LastError.Message : (context.Response != null ? context.Response.StatusReason : "Unexpected error")) + "\",\"status\":" + (context.Response != null ? context.Response.StatusCode.ToString() : "500") + ",\"requestId\":\"" + context.RequestId.ToString() + "\"}")</set-body>
+      <set-body>@("{\"error\":\"" + (context.LastError != null ? context.LastError.Message : "error") + "\",\"status\":" + (context.Response != null ? context.Response.StatusCode.ToString() : "500") + ",\"requestId\":\"" + context.RequestId.ToString() + "\"}")</set-body>
     </return-response>
-
   </on-error>
-
 </policies>
 XML
 }
