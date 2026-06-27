@@ -1,4 +1,5 @@
 using MyApp.Web.Models;
+using System.Globalization;
 
 namespace MyApp.Web.Services;
 
@@ -13,50 +14,71 @@ public class WeatherPredictionService
 
     public async Task<WeatherForecastResponse> PredictNextSixMonthsAsync()
     {
-        var historical = await _weatherService.GetSixMonthTrendsAsync();
+        var historical = await _weatherService.GetHistoricalTrendsAsync();
         var trends     = historical.Trends;
 
-        // Use index as x-axis (0,1,2,...,n) and values as y-axis
-        var maxTemps = trends.Select(t => t.AvgMaxTemp).ToList();
-        var minTemps = trends.Select(t => t.AvgMinTemp).ToList();
-        var precips  = trends.Select(t => t.TotalPrecipitation).ToList();
+        // Build a calendar-month baseline (seasonal profile) from all historical data.
+        // For each calendar month (Jan=1 .. Dec=12) average every occurrence across years.
+        var byCalendarMonth = trends
+            .GroupBy(t => ParseMonth(t.Month).Month)
+            .ToDictionary(
+                g => g.Key,
+                g => new
+                {
+                    AvgMax  = g.Average(t => t.AvgMaxTemp),
+                    AvgMin  = g.Average(t => t.AvgMinTemp),
+                    AvgPrec = g.Average(t => t.TotalPrecipitation)
+                }
+            );
 
-        var (maxSlope, maxIntercept)   = LinearRegression(maxTemps);
-        var (minSlope, minIntercept)   = LinearRegression(minTemps);
-        var (precSlope, precIntercept) = LinearRegression(precips);
+        // Compute the year-over-year trend by running OLS on the de-seasonalised residuals.
+        // Residual = actual value – seasonal baseline for that calendar month.
+        var deseasonMax  = trends.Select(t => t.AvgMaxTemp  - byCalendarMonth[ParseMonth(t.Month).Month].AvgMax).ToList();
+        var deseasonMin  = trends.Select(t => t.AvgMinTemp  - byCalendarMonth[ParseMonth(t.Month).Month].AvgMin).ToList();
+        var deseasonPrec = trends.Select(t => t.TotalPrecipitation - byCalendarMonth[ParseMonth(t.Month).Month].AvgPrec).ToList();
 
-        // Last historical month as starting point for future months
+        var (maxSlope,  maxIntercept)  = LinearRegression(deseasonMax);
+        var (minSlope,  minIntercept)  = LinearRegression(deseasonMin);
+        var (precSlope, precIntercept) = LinearRegression(deseasonPrec);
+
         var lastMonth = ParseMonth(trends.Last().Month);
+        int n         = trends.Count;
 
         var predictions = new List<MonthlyPrediction>();
         for (int i = 1; i <= 6; i++)
         {
-            int x = trends.Count - 1 + i;
+            int futureIndex    = n - 1 + i;
+            var futureMonth    = lastMonth.AddMonths(i);
+            int calMonth       = futureMonth.Month;
 
-            var predictedMax  = Math.Round(maxSlope  * x + maxIntercept,  1);
-            var predictedMin  = Math.Round(minSlope  * x + minIntercept,  1);
-            var predictedPrec = Math.Round(precSlope * x + precIntercept, 1);
+            // Prediction = seasonal baseline + extrapolated de-seasonalised trend
+            var seasonal = byCalendarMonth.TryGetValue(calMonth, out var s)
+                ? s
+                : byCalendarMonth.Values.First();
 
-            // Clamp precipitation to non-negative
-            predictedPrec = Math.Max(0, predictedPrec);
-
-            var month = lastMonth.AddMonths(i).ToString("MMM yyyy");
+            var predictedMax  = Math.Round(seasonal.AvgMax  + maxSlope  * futureIndex + maxIntercept,  1);
+            var predictedMin  = Math.Round(seasonal.AvgMin  + minSlope  * futureIndex + minIntercept,  1);
+            var predictedPrec = Math.Max(0, Math.Round(seasonal.AvgPrec + precSlope * futureIndex + precIntercept, 1));
 
             predictions.Add(new MonthlyPrediction(
-                month,
+                futureMonth.ToString("MMM yyyy"),
                 predictedMax,
                 predictedMin,
                 predictedPrec,
-                ConfidenceLevel(trends.Count)
+                ConfidenceLevel(n)
             ));
         }
 
-        var tempTrend = maxSlope > 0.1  ? "Warming"
-                      : maxSlope < -0.1 ? "Cooling"
+        // Annualised trend: multiply monthly slope by 12 so it's °C/year
+        double annualTempSlope = Math.Round(maxSlope * 12, 3);
+        double annualPrecSlope = Math.Round(precSlope * 12, 3);
+
+        var tempTrend = annualTempSlope > 0.3  ? "Warming"
+                      : annualTempSlope < -0.3 ? "Cooling"
                       : "Stable";
 
-        var precTrend = precSlope > 1   ? "Increasing rainfall"
-                      : precSlope < -1  ? "Decreasing rainfall"
+        var precTrend = annualPrecSlope > 5   ? "Increasing rainfall"
+                      : annualPrecSlope < -5  ? "Decreasing rainfall"
                       : "Stable rainfall";
 
         return new WeatherForecastResponse(
@@ -65,22 +87,19 @@ public class WeatherPredictionService
             predictions,
             tempTrend,
             precTrend,
-            Math.Round(maxSlope, 3),
-            Math.Round(precSlope, 3)
+            annualTempSlope,
+            annualPrecSlope
         );
     }
 
-    // Ordinary least squares linear regression
-    // Returns (slope, intercept) for y = slope * x + intercept
+    // Ordinary least squares: y = slope * x + intercept
     private static (double slope, double intercept) LinearRegression(List<double> values)
     {
-        int n   = values.Count;
-        var xs  = Enumerable.Range(0, n).Select(i => (double)i).ToList();
-
-        double sumX  = xs.Sum();
+        int n    = values.Count;
+        double sumX  = n * (n - 1) / 2.0;
         double sumY  = values.Sum();
-        double sumXY = xs.Zip(values, (x, y) => x * y).Sum();
-        double sumX2 = xs.Sum(x => x * x);
+        double sumXY = values.Select((y, i) => i * y).Sum();
+        double sumX2 = Enumerable.Range(0, n).Sum(i => (double)i * i);
 
         double slope     = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
         double intercept = (sumY - slope * sumX) / n;
@@ -88,10 +107,9 @@ public class WeatherPredictionService
         return (slope, intercept);
     }
 
-    // Confidence is higher with more data points
     private static string ConfidenceLevel(int dataPoints) =>
-        dataPoints >= 6 ? "High" : dataPoints >= 4 ? "Medium" : "Low";
+        dataPoints >= 18 ? "High" : dataPoints >= 12 ? "Medium" : "Low";
 
     private static DateTime ParseMonth(string month) =>
-        DateTime.ParseExact(month, "MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        DateTime.ParseExact(month, "MMM yyyy", CultureInfo.InvariantCulture);
 }

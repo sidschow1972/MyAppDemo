@@ -24,11 +24,11 @@ public class WeatherService
         _logger     = logger;
     }
 
-    public async Task<WeatherTrendResponse> GetSixMonthTrendsAsync()
+    public async Task<WeatherTrendResponse> GetHistoricalTrendsAsync()
     {
         // Open-Meteo archive has a ~5 day delay so we end 7 days ago to be safe
         var endDate   = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-7));
-        var startDate = endDate.AddMonths(-6);
+        var startDate = endDate.AddMonths(-24);
 
         var url = "https://archive-api.open-meteo.com/v1/archive" +
                   $"?latitude={Latitude}&longitude={Longitude}" +

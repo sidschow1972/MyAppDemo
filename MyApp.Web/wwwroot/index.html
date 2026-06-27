@@ -165,7 +165,7 @@
 
         document.getElementById('loading').remove();
         document.getElementById('subtitle').textContent =
-          `${data.location} — 6 months historical + 6 months forecast`;
+          `${data.location} — 2 years historical + 6 months forecast`;
 
         const hLabels   = data.historical.map(t => t.month);
         const hMaxTemps = data.historical.map(t => t.avgMaxTemp);
@@ -209,7 +209,7 @@
         document.getElementById('dashboard').appendChild(stats);
 
         // ── Section: Historical ───────────────────────────────────────
-        addSectionTitle('Historical Data — Last 6 Months');
+        addSectionTitle('Historical Data — Last 2 Years');
 
         // Temperature line chart (historical)
         new Chart(addCard('', 'Monthly Temperature (°C)', 'tempChart'), {
@@ -298,9 +298,10 @@
             </tbody>
           </table>
           <p style="margin-top:1rem;font-size:0.75rem;color:#475569">
-            Predictions use ordinary least squares linear regression on the last 6 months of data.
-            Slope: temperature ${data.temperatureSlope > 0 ? '+' : ''}${data.temperatureSlope}°C/month,
-            precipitation ${data.precipitationSlope > 0 ? '+' : ''}${data.precipitationSlope}mm/month.
+            Predictions use seasonal decomposition + OLS regression on 2 years of data.
+            Seasonal baselines (per calendar month) are separated from the long-term trend.
+            Annualised trend: temperature ${data.temperatureSlope > 0 ? '+' : ''}${data.temperatureSlope}°C/year,
+            precipitation ${data.precipitationSlope > 0 ? '+' : ''}${data.precipitationSlope}mm/year.
           </p>
         `;
         document.getElementById('dashboard').appendChild(tableCard);

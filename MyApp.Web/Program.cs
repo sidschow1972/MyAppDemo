@@ -44,7 +44,7 @@ app.MapGet("/api/weather/trends", async (WeatherService weather, ILogger<Program
 {
     try
     {
-        var trends = await weather.GetSixMonthTrendsAsync();
+        var trends = await weather.GetHistoricalTrendsAsync();
         return Results.Ok(trends);
     }
     catch (Exception ex)
