@@ -294,6 +294,12 @@ resource "azurerm_api_management_api_policy" "app" {
         <set-header name="X-Api-Version" exists-action="override">
           <value>1.0</value>
         </set-header>
+        <set-header name="X-Request-Id" exists-action="override">
+          <value>@(context.RequestId.ToString())</value>
+        </set-header>
+        <set-header name="X-Powered-By" exists-action="override">
+          <value>Azure APIM + .NET 8</value>
+        </set-header>
       </outbound>
       <on-error>
         <base />
