@@ -145,22 +145,21 @@ stages:
             artifact: drop
 
           # ── Docker build and push (for AKS deployment) ────────────────
-          # az acr build sends the source context to ACR, which builds and
-          # pushes the image server-side — no Docker daemon needed on the agent,
-          # and no separate Docker Registry service connection required.
-          - task: AzureCLI@2
-            displayName: 'Build and push Docker image to ACR'
-            inputs:
-              azureSubscription: 'myapp-service-connection'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              inlineScript: |
-                az acr build \
-                  --registry acrmyappsid \
-                  --image myapp-web:$(Build.BuildId) \
-                  --image myapp-web:latest \
-                  --file Dockerfile \
-                  .
+          # Disabled while deploy_aks = false — ACR does not exist.
+          # Re-enable when deploy_aks is toggled back to true.
+          # - task: AzureCLI@2
+          #   displayName: 'Build and push Docker image to ACR'
+          #   inputs:
+          #     azureSubscription: 'myapp-service-connection'
+          #     scriptType: 'bash'
+          #     scriptLocation: 'inlineScript'
+          #     inlineScript: |
+          #       az acr build \
+          #         --registry acrmyappsid \
+          #         --image myapp-web:$(Build.BuildId) \
+          #         --image myapp-web:latest \
+          #         --file Dockerfile \
+          #         .
 
   - stage: Deploy
     dependsOn: Build
@@ -186,41 +185,30 @@ stages:
                     package: '$(Pipeline.Workspace)/drop/**/*.zip'
 
       # ── Job 2: Deploy to AKS ───────────────────────────────────────────
-      # Uses the Azure CLI to:
-      #   1. Get AKS credentials into the agent's kubeconfig
-      #   2. Stamp the build ID into the deployment manifest
-      #   3. Apply all K8s manifests (Deployment, Service, HPA)
-      - job: DeployToAKS
-        displayName: 'Deploy to AKS'
-        pool:
-          vmImage: ubuntu-latest
-        steps:
-          - task: AzureCLI@2
-            displayName: 'Deploy to AKS'
-            inputs:
-              azureSubscription: 'myapp-service-connection'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              inlineScript: |
-                # Get kubectl credentials for the AKS cluster
-                az aks get-credentials \
-                  --resource-group rg-myapp-prod \
-                  --name aks-myapp-prod \
-                  --admin \
-                  --overwrite-existing
-
-                # Replace __BUILD_ID__ placeholder in deployment.yaml with
-                # the actual build number so the cluster pulls the right image.
-                sed -i "s/__BUILD_ID__/$(Build.BuildId)/g" k8s/deployment.yaml
-
-                # Apply manifests — kubectl is idempotent:
-                # first run creates resources, subsequent runs update them.
-                kubectl apply -f k8s/deployment.yaml
-                kubectl apply -f k8s/service.yaml
-                kubectl apply -f k8s/hpa.yaml
-
-                # Wait for the rollout to complete (or fail within 3 minutes)
-                kubectl rollout status deployment/myapp-web --timeout=3m
+      # Disabled while deploy_aks = false — AKS cluster does not exist.
+      # Re-enable when deploy_aks is toggled back to true.
+      # - job: DeployToAKS
+      #   displayName: 'Deploy to AKS'
+      #   pool:
+      #     vmImage: ubuntu-latest
+      #   steps:
+      #     - task: AzureCLI@2
+      #       displayName: 'Deploy to AKS'
+      #       inputs:
+      #         azureSubscription: 'myapp-service-connection'
+      #         scriptType: 'bash'
+      #         scriptLocation: 'inlineScript'
+      #         inlineScript: |
+      #           az aks get-credentials \
+      #             --resource-group rg-myapp-prod \
+      #             --name aks-myapp-prod \
+      #             --admin \
+      #             --overwrite-existing
+      #           sed -i "s/__BUILD_ID__/$(Build.BuildId)/g" k8s/deployment.yaml
+      #           kubectl apply -f k8s/deployment.yaml
+      #           kubectl apply -f k8s/service.yaml
+      #           kubectl apply -f k8s/hpa.yaml
+      #           kubectl rollout status deployment/myapp-web --timeout=3m
 
   - stage: Validate
     dependsOn: Deploy
@@ -239,33 +227,29 @@ stages:
               exit 1
             displayName: 'Smoke test App Service'
 
-          # Smoke test AKS — get the LoadBalancer IP and hit /health
-          - task: AzureCLI@2
-            displayName: 'Smoke test AKS'
-            inputs:
-              azureSubscription: 'myapp-service-connection'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              inlineScript: |
-                az aks get-credentials \
-                  --resource-group rg-myapp-prod \
-                  --name aks-myapp-prod \
-                  --admin \
-                  --overwrite-existing
-
-                # Wait for the LoadBalancer external IP to be assigned
-                echo "Waiting for external IP..."
-                for i in {1..20}; do
-                  IP=$(kubectl get svc myapp-web-svc \
-                    -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
-                  if [ -n "$IP" ]; then
-                    echo "External IP: $IP"
-                    curl -f http://$IP/health && exit 0
-                  fi
-                  echo "Attempt $i — IP not ready yet, waiting..."
-                  sleep 15
-                done
-                exit 1
+          # Smoke test AKS — disabled while deploy_aks = false.
+          # Re-enable when deploy_aks is toggled back to true.
+          # - task: AzureCLI@2
+          #   displayName: 'Smoke test AKS'
+          #   inputs:
+          #     azureSubscription: 'myapp-service-connection'
+          #     scriptType: 'bash'
+          #     scriptLocation: 'inlineScript'
+          #     inlineScript: |
+          #       az aks get-credentials \
+          #         --resource-group rg-myapp-prod \
+          #         --name aks-myapp-prod \
+          #         --admin \
+          #         --overwrite-existing
+          #       for i in {1..20}; do
+          #         IP=$(kubectl get svc myapp-web-svc \
+          #           -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          #         if [ -n "$IP" ]; then
+          #           curl -f http://$IP/health && exit 0
+          #         fi
+          #         sleep 15
+          #       done
+          #       exit 1
 
   # Load Test stage — disabled, re-enable when ready
   # - stage: LoadTest
