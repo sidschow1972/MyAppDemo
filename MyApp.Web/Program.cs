@@ -24,10 +24,18 @@ app.UseStaticFiles();
 
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy", timestamp = DateTime.UtcNow }));
 
-app.MapGet("/api/weather/trends", async (WeatherService weather) =>
+app.MapGet("/api/weather/trends", async (WeatherService weather, ILogger<Program> logger) =>
 {
-    var trends = await weather.GetSixMonthTrendsAsync();
-    return Results.Ok(trends);
+    try
+    {
+        var trends = await weather.GetSixMonthTrendsAsync();
+        return Results.Ok(trends);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to fetch weather trends");
+        return Results.Problem(ex.Message);
+    }
 });
 
 app.Run();

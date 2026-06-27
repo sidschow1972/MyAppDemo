@@ -7,6 +7,7 @@ namespace MyApp.Web.Services;
 public class WeatherService
 {
     private readonly HttpClient _httpClient;
+    private readonly ILogger<WeatherService> _logger;
 
     private const double Latitude  = 40.7128;
     private const double Longitude = -74.0060;
@@ -14,12 +15,13 @@ public class WeatherService
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+        PropertyNameCaseInsensitive = true
     };
 
-    public WeatherService(HttpClient httpClient)
+    public WeatherService(HttpClient httpClient, ILogger<WeatherService> logger)
     {
         _httpClient = httpClient;
+        _logger     = logger;
     }
 
     public async Task<WeatherTrendResponse> GetSixMonthTrendsAsync()
@@ -33,6 +35,8 @@ public class WeatherService
                   $"&start_date={startDate:yyyy-MM-dd}&end_date={endDate:yyyy-MM-dd}" +
                   "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum" +
                   "&timezone=America%2FNew_York";
+
+        _logger.LogInformation("Fetching weather data from {Url}", url);
 
         var json     = await _httpClient.GetStringAsync(url);
         var response = JsonSerializer.Deserialize<OpenMeteoResponse>(json, JsonOptions)!;
@@ -61,16 +65,25 @@ public class WeatherService
     }
 }
 
-// Open-Meteo API response shape
+// Open-Meteo API response shape — using explicit JsonPropertyName to match
+// the API's snake_case fields exactly (e.g. temperature_2m_max)
 public class OpenMeteoResponse
 {
+    [JsonPropertyName("daily")]
     public OpenMeteoDailyData Daily { get; set; } = new();
 }
 
 public class OpenMeteoDailyData
 {
-    public List<string>  Time               { get; set; } = [];
-    public List<double?> Temperature2mMax   { get; set; } = [];
-    public List<double?> Temperature2mMin   { get; set; } = [];
-    public List<double?> PrecipitationSum   { get; set; } = [];
+    [JsonPropertyName("time")]
+    public List<string> Time { get; set; } = [];
+
+    [JsonPropertyName("temperature_2m_max")]
+    public List<double?> Temperature2mMax { get; set; } = [];
+
+    [JsonPropertyName("temperature_2m_min")]
+    public List<double?> Temperature2mMin { get; set; } = [];
+
+    [JsonPropertyName("precipitation_sum")]
+    public List<double?> PrecipitationSum { get; set; } = [];
 }
