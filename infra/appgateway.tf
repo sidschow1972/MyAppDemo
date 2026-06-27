@@ -365,13 +365,16 @@ resource "azurerm_api_management_api_policy" "app" {
       starts — the first request after idle wakes the app (503 briefly),
       and the retry picks up the response once it's warm.
 
-      condition: which HTTP status codes trigger a retry
+      condition: null-safe check — context.Response is null on the FIRST
+      attempt (no response exists yet), so we guard with != null before
+      reading StatusCode. The retry fires when the response IS a 5xx.
       interval:  seconds to wait between retries
       count:     maximum number of retries
     -->
-    <retry condition="@(context.Response.StatusCode == 500 ||
-                        context.Response.StatusCode == 502 ||
-                        context.Response.StatusCode == 503)"
+    <retry condition="@(context.Response != null && (
+                          context.Response.StatusCode == 500 ||
+                          context.Response.StatusCode == 502 ||
+                          context.Response.StatusCode == 503))"
            count="3"
            interval="2"
            first-fast-retry="true">
@@ -423,25 +426,35 @@ resource "azurerm_api_management_api_policy" "app" {
     <base />
 
     <!--
-      POLICY 8: Standardised error response
+      POLICY 7: Standardised error response
       ──────────────────────────────────────
       When something goes wrong (rate limit hit, backend error, policy exception)
-      this rewrites the response body to a consistent JSON shape.
-      Callers get the same error format regardless of where the failure occurred,
-      making client-side error handling simpler.
+      this returns a consistent JSON error shape to the caller.
+
+      <return-response> short-circuits normal processing and sends the
+      response we build here — no further policies run after this.
+
+      context.LastError.Message = the error that triggered on-error
+      context.Response.StatusCode = HTTP status from the backend (if any)
+      context.RequestId = unique GUID per request, useful for log correlation
+
+      NOTE: JObject/JProperty (Newtonsoft) are NOT available in Consumption
+      tier policy expressions. We use string interpolation instead.
     -->
-    <set-status code="@(context.Response.StatusCode)"
-                reason="@(context.Response.StatusReason)" />
-    <set-header name="Content-Type" exists-action="override">
-      <value>application/json</value>
-    </set-header>
-    <set-body>@{
-      return new JObject(
-        new JProperty("error",     context.Response.StatusReason),
-        new JProperty("status",    context.Response.StatusCode),
-        new JProperty("requestId", context.RequestId)
-      ).ToString();
-    }</set-body>
+    <return-response>
+      <set-status code="@(context.Response != null ? context.Response.StatusCode : 500)"
+                  reason="@(context.Response != null ? context.Response.StatusReason : "Internal Server Error")" />
+      <set-header name="Content-Type" exists-action="override">
+        <value>application/json</value>
+      </set-header>
+      <set-body>@{
+        var status  = context.Response != null ? context.Response.StatusCode : 500;
+        var reason  = context.Response != null ? context.Response.StatusReason : "Internal Server Error";
+        var message = context.LastError != null ? context.LastError.Message : reason;
+        return string.Format("{{\"error\":\"{0}\",\"status\":{1},\"requestId\":\"{2}\"}}",
+                             message.Replace("\"","'"), status, context.RequestId);
+      }</set-body>
+    </return-response>
 
   </on-error>
 
