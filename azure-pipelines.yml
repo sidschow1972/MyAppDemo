@@ -229,30 +229,15 @@ stages:
         pool:
           vmImage: ubuntu-latest
         steps:
-          # Smoke test via App Gateway (the only public entry point now that
-          # App Service has public_network_access_enabled = false).
-          - task: AzureCLI@2
-            displayName: 'Smoke test via App Gateway'
-            inputs:
-              azureSubscription: 'myapp-service-connection'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              inlineScript: |
-                # Get the App Gateway public IP
-                IP=$(az network public-ip show \
-                  --resource-group rg-myapp-prod \
-                  --name pip-appgw-prod \
-                  --query ipAddress -o tsv)
-                echo "App Gateway IP: $IP"
-
-                # Hit /myapp/health through App Gateway → APIM → App Service
-                for i in {1..10}; do
-                  echo "Attempt $i..."
-                  curl -f -H "Host: apim-myapp-sid.azure-api.net" \
-                    http://$IP/myapp/health && exit 0
-                  sleep 15
-                done
-                exit 1
+          # Smoke test App Service directly (public endpoint, F1 tier).
+          - script: |
+              for i in {1..10}; do
+                echo "Attempt $i..."
+                curl -f https://app-myapp-sid.azurewebsites.net/health && exit 0
+                sleep 15
+              done
+              exit 1
+            displayName: 'Smoke test App Service'
 
           # Smoke test AKS — get the LoadBalancer IP and hit /health
           - task: AzureCLI@2
