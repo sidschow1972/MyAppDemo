@@ -145,19 +145,22 @@ stages:
             artifact: drop
 
           # ── Docker build and push (for AKS deployment) ────────────────
-          # Logs in to ACR using the service connection, builds the image
-          # with the current build ID as the tag (immutable, traceable),
-          # then pushes it so the AKS deploy stage can pull it.
-          - task: Docker@2
+          # az acr build sends the source context to ACR, which builds and
+          # pushes the image server-side — no Docker daemon needed on the agent,
+          # and no separate Docker Registry service connection required.
+          - task: AzureCLI@2
             displayName: 'Build and push Docker image to ACR'
             inputs:
-              containerRegistry: 'myapp-service-connection'
-              repository: 'myapp-web'
-              command: 'buildAndPush'
-              Dockerfile: 'Dockerfile'
-              tags: |
-                $(Build.BuildId)
-                latest
+              azureSubscription: 'myapp-service-connection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az acr build \
+                  --registry acrmyappsid \
+                  --image myapp-web:$(Build.BuildId) \
+                  --image myapp-web:latest \
+                  --file Dockerfile \
+                  .
 
   - stage: Deploy
     dependsOn: Build
