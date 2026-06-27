@@ -218,7 +218,6 @@ resource "azurerm_api_management_api_operation" "health" {
 }
 
 # GET / — forwards to App Service root endpoint.
-# Returns the "MyApp is running." response from Program.cs.
 resource "azurerm_api_management_api_operation" "root" {
   operation_id        = "get-root"
   api_name            = azurerm_api_management_api.app.name
@@ -227,4 +226,287 @@ resource "azurerm_api_management_api_operation" "root" {
   display_name        = "Root"
   method              = "GET"
   url_template        = "/"
+}
+
+# GET /api/weather/trends — 2-year historical monthly averages
+resource "azurerm_api_management_api_operation" "weather_trends" {
+  operation_id        = "get-weather-trends"
+  api_name            = azurerm_api_management_api.app.name
+  api_management_name = azurerm_api_management.app.name
+  resource_group_name = azurerm_resource_group.app.name
+  display_name        = "Weather Trends"
+  method              = "GET"
+  url_template        = "/api/weather/trends"
+}
+
+# GET /api/weather/forecast — 6-month ahead prediction
+resource "azurerm_api_management_api_operation" "weather_forecast" {
+  operation_id        = "get-weather-forecast"
+  api_name            = azurerm_api_management_api.app.name
+  api_management_name = azurerm_api_management.app.name
+  resource_group_name = azurerm_resource_group.app.name
+  display_name        = "Weather Forecast"
+  method              = "GET"
+  url_template        = "/api/weather/forecast"
+}
+
+# -----------------------------------------------------------------------
+# APIM API-level Policy
+#
+# Policies are XML rules that APIM applies to every request/response as
+# it flows through the gateway. They are organised into four sections:
+#
+#   <inbound>   — runs BEFORE the request reaches the backend
+#   <backend>   — controls HOW the backend is called
+#   <outbound>  — runs AFTER the backend responds, BEFORE returning to caller
+#   <on-error>  — runs if any policy or backend call throws an error
+#
+# This policy is applied at the API level, meaning every operation
+# under "myapp-api" inherits all of these rules automatically.
+# You can also add operation-level policies on top for finer control.
+# -----------------------------------------------------------------------
+resource "azurerm_api_management_api_policy" "app" {
+  api_name            = azurerm_api_management_api.app.name
+  api_management_name = azurerm_api_management.app.name
+  resource_group_name = azurerm_resource_group.app.name
+
+  xml_content = <<XML
+<policies>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       INBOUND — policies that execute before hitting the backend
+       ═══════════════════════════════════════════════════════════════ -->
+  <inbound>
+    <base />
+
+    <!--
+      POLICY 1: Remove subscription key requirement
+      ─────────────────────────────────────────────
+      By default APIM requires callers to pass a secret key in the header
+      "Ocp-Apim-Subscription-Key" or query string "subscription-key".
+      Without a key, APIM returns 401 Unauthorized.
+
+      Here we explicitly tell APIM NOT to validate any key, making the API
+      publicly accessible. Useful during development; in production you would
+      remove this and issue keys through the developer portal instead.
+    -->
+    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+
+    <!--
+      POLICY 2: Rate limiting by caller IP
+      ─────────────────────────────────────
+      Allows each unique caller IP address a maximum of 30 calls per 60 seconds.
+      When the limit is hit, APIM returns 429 Too Many Requests without
+      forwarding the request to the backend — protecting the App Service from
+      being overwhelmed.
+
+      calls="30"      → max 30 requests in the renewal-period
+      renewal-period  → sliding window in seconds (60 = 1 minute)
+      counter-key     → what to count per: @(context.Request.IpAddress) = per IP
+    -->
+    <rate-limit-by-key calls="30"
+                       renewal-period="60"
+                       counter-key="@(context.Request.IpAddress)"
+                       remaining-calls-header-name="X-RateLimit-Remaining"
+                       retry-after-header-name="Retry-After" />
+
+    <!--
+      POLICY 3: CORS (Cross-Origin Resource Sharing)
+      ──────────────────────────────────────────────
+      Browsers block JavaScript from calling APIs on different domains unless
+      the server explicitly allows it (via CORS headers).
+      This policy lets APIM inject the correct CORS headers so that a web app
+      served from any origin can call this API.
+
+      allowed-origins / * = accept requests from any origin.
+      In production, replace * with your actual frontend domain,
+      e.g. <origin>https://app-myapp-sid.azurewebsites.net</origin>
+    -->
+    <cors allow-credentials="false">
+      <allowed-origins>
+        <origin>*</origin>
+      </allowed-origins>
+      <allowed-methods>
+        <method>GET</method>
+        <method>OPTIONS</method>
+      </allowed-methods>
+      <allowed-headers>
+        <header>*</header>
+      </allowed-headers>
+    </cors>
+
+    <!--
+      POLICY 4: Add a custom request header sent to the backend
+      ─────────────────────────────────────────────────────────
+      Injects a header into the request before it reaches the App Service.
+      The backend can read this to know the call came through APIM.
+      Useful for auditing or for routing logic in the backend.
+    -->
+    <set-header name="X-Forwarded-Via" exists-action="override">
+      <value>APIM-myapp-sid</value>
+    </set-header>
+
+  </inbound>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       BACKEND — controls the call to the App Service
+       ═══════════════════════════════════════════════════════════════ -->
+  <backend>
+    <base />
+
+    <!--
+      POLICY 5: Backend retry on transient failure
+      ─────────────────────────────────────────────
+      If the App Service returns 500, 502, or 503 (transient server errors)
+      APIM will retry the request automatically up to 3 times before
+      giving up and returning the error to the caller.
+
+      This is important for F1 tier App Service which can experience cold
+      starts — the first request after idle wakes the app (503 briefly),
+      and the retry picks up the response once it's warm.
+
+      condition: which HTTP status codes trigger a retry
+      interval:  seconds to wait between retries
+      count:     maximum number of retries
+    -->
+    <retry condition="@(context.Response.StatusCode == 500 ||
+                        context.Response.StatusCode == 502 ||
+                        context.Response.StatusCode == 503)"
+           count="3"
+           interval="2"
+           first-fast-retry="true">
+      <forward-request timeout="30" />
+    </retry>
+
+  </backend>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       OUTBOUND — policies that execute after the backend responds
+       ═══════════════════════════════════════════════════════════════ -->
+  <outbound>
+    <base />
+
+    <!--
+      POLICY 6: Add informational response headers
+      ─────────────────────────────────────────────
+      Injects custom headers into the response returned to the caller.
+      These don't change the body — they provide metadata the client can
+      inspect (e.g. in browser DevTools → Network → Response Headers).
+
+      X-Api-Version  : lets callers know which revision they're talking to
+      X-Request-Id   : a unique ID per request — correlate with App Insights logs
+      X-Powered-By   : branding / documentation hint
+    -->
+    <set-header name="X-Api-Version" exists-action="override">
+      <value>1.0</value>
+    </set-header>
+    <set-header name="X-Request-Id" exists-action="override">
+      <value>@(context.RequestId.ToString())</value>
+    </set-header>
+    <set-header name="X-Powered-By" exists-action="override">
+      <value>Azure APIM + .NET 8</value>
+    </set-header>
+
+    <!--
+      POLICY 7: Response caching for weather endpoints
+      ─────────────────────────────────────────────────
+      Caches the backend response in APIM for 300 seconds (5 minutes).
+      Subsequent identical requests are served from the cache without
+      hitting the App Service at all — reducing latency and backend load.
+
+      vary-by-developer / vary-by-developer-groups: false = one shared cache
+      for all callers (not per-user). Fine for public weather data.
+      duration: cache lifetime in seconds.
+    -->
+    <cache-store duration="300"
+                 vary-by-developer="false"
+                 vary-by-developer-groups="false" />
+
+  </outbound>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       ON-ERROR — runs if any policy or backend call throws
+       ═══════════════════════════════════════════════════════════════ -->
+  <on-error>
+    <base />
+
+    <!--
+      POLICY 8: Standardised error response
+      ──────────────────────────────────────
+      When something goes wrong (rate limit hit, backend error, policy exception)
+      this rewrites the response body to a consistent JSON shape.
+      Callers get the same error format regardless of where the failure occurred,
+      making client-side error handling simpler.
+    -->
+    <set-status code="@(context.Response.StatusCode)"
+                reason="@(context.Response.StatusReason)" />
+    <set-header name="Content-Type" exists-action="override">
+      <value>application/json</value>
+    </set-header>
+    <set-body>@{
+      return new JObject(
+        new JProperty("error",     context.Response.StatusReason),
+        new JProperty("status",    context.Response.StatusCode),
+        new JProperty("requestId", context.RequestId)
+      ).ToString();
+    }</set-body>
+
+  </on-error>
+
+</policies>
+XML
+}
+
+# -----------------------------------------------------------------------
+# Cache lookup policy on the weather operations
+# The cache-store above saves the response; cache-lookup retrieves it.
+# Both must be present for caching to work end-to-end.
+# This is added at operation level so only weather calls are cached
+# (health checks should always hit the real backend).
+# -----------------------------------------------------------------------
+resource "azurerm_api_management_api_operation_policy" "weather_trends_cache" {
+  operation_id        = azurerm_api_management_api_operation.weather_trends.operation_id
+  api_name            = azurerm_api_management_api.app.name
+  api_management_name = azurerm_api_management.app.name
+  resource_group_name = azurerm_resource_group.app.name
+
+  xml_content = <<XML
+<policies>
+  <inbound>
+    <base />
+    <!--
+      cache-lookup: before forwarding to backend, check the APIM cache.
+      If a cached response exists for this URL it is returned immediately.
+      vary-by-developer/groups: false = shared cache across all callers.
+    -->
+    <cache-lookup vary-by-developer="false"
+                  vary-by-developer-groups="false"
+                  allow-private-response-caching="false" />
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>
+XML
+}
+
+resource "azurerm_api_management_api_operation_policy" "weather_forecast_cache" {
+  operation_id        = azurerm_api_management_api_operation.weather_forecast.operation_id
+  api_name            = azurerm_api_management_api.app.name
+  api_management_name = azurerm_api_management.app.name
+  resource_group_name = azurerm_resource_group.app.name
+
+  xml_content = <<XML
+<policies>
+  <inbound>
+    <base />
+    <cache-lookup vary-by-developer="false"
+                  vary-by-developer-groups="false"
+                  allow-private-response-caching="false" />
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>
+XML
 }
