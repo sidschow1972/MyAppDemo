@@ -33,6 +33,10 @@ resource "azurerm_kubernetes_cluster" "app" {
     type = "SystemAssigned"
   }
 
+  # OIDC issuer is enabled by default on new clusters and cannot be disabled
+  # once on. Declaring it explicitly prevents Terraform from trying to remove it.
+  oidc_issuer_enabled = true
+
   auto_scaler_profile {
     scale_down_delay_after_add       = "10m"
     scale_down_unneeded              = "10m"
