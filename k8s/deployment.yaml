@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-web
+  namespace: default
+  labels:
+    app: myapp-web
+spec:
+  # Start with 1 replica. HPA will scale up to 2 automatically based on
+  # CPU/memory utilisation defined in hpa.yaml.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp-web
+  template:
+    metadata:
+      labels:
+        app: myapp-web
+    spec:
+      containers:
+        - name: myapp-web
+          # __BUILD_ID__ is replaced by the pipeline with the actual build number
+          # so every deployment uses an immutable, traceable image tag.
+          image: acrmyappsid.azurecr.io/myapp-web:__BUILD_ID__
+          ports:
+            - containerPort: 8080
+
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+
+          # ── Resource requests and limits ──────────────────────────────────
+          # requests: the minimum guaranteed allocation. Kubernetes uses this
+          #           to decide which node to schedule the pod on.
+          # limits:   the hard ceiling. The container is throttled (CPU) or
+          #           killed and restarted (memory) if it exceeds these.
+          #
+          # HPA reads actual usage against the limit to decide when to scale:
+          #   CPU  > 70% of 500m (350m) → add a replica
+          #   RAM  > 80% of 512Mi (409Mi) → add a replica
+          resources:
+            requests:
+              cpu: "100m"      # 0.1 vCPU guaranteed
+              memory: "128Mi"
+            limits:
+              cpu: "500m"      # 0.5 vCPU maximum
+              memory: "512Mi"
+
+          # ── Health probes ─────────────────────────────────────────────────
+          # readinessProbe: Kubernetes only sends traffic to a pod that passes
+          #                 this check. Prevents requests hitting a cold-starting pod.
+          # livenessProbe:  If this fails, Kubernetes restarts the container.
+          #                 Catches hangs or deadlocks.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3

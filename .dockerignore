@@ -1,0 +1,9 @@
+**/.git
+**/.gitignore
+**/obj
+**/bin
+infra/
+k8s/
+loadtest/
+*.md
+.azure/
