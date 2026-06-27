@@ -6,7 +6,7 @@ variable "deploy_aks" {
     To restore:   change default back to true, push, approve.
   DESC
   type    = bool
-  default = true
+  default = false
 }
 
 variable "deploy_app_gateway" {
