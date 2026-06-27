@@ -64,7 +64,7 @@ stages:
           - task: ManualValidation@0
             displayName: 'Manual approval gate'
             inputs:
-              notifyUsers: 'sidschow1972@gmail.com'
+              notifyUsers: 'sidhartha.choudhury@hotmail.com'
               instructions: |
                 Review the Terraform plan output in the TerraformPlan job logs above.
                 Approve to apply the changes to Azure. Reject to abort the pipeline.
