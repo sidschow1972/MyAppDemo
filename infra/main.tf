@@ -23,20 +23,21 @@ resource "azurerm_resource_group" "app" {
 # -----------------------------------------------------------------------------
 # App Service Plan — B1 Basic (required for private endpoints)
 #
-# Why B1 and not F1 (Free)?
-#   Azure App Service private endpoints require at least the Basic tier (B1).
+# Why P1v2 and not F1 (Free)?
+#   Azure App Service private endpoints require at least the Basic tier.
 #   The Free tier (F1) does not support private endpoints, VNet integration,
-#   or the always_on setting. We upgraded from F1 to B1 specifically to allow
-#   the private endpoint defined in appgateway.tf to attach to this app.
+#   or the always_on setting. We use P1v2 (Premium v2) rather than B1 because
+#   B1 hit an Azure capacity constraint in East US — P1v2 draws from a
+#   separate capacity pool and has better availability in this region.
 #
-# Cost impact: ~$13/month (up from $0 on F1).
+# Cost impact: ~$55/month (up from $0 on F1).
 # -----------------------------------------------------------------------------
 resource "azurerm_service_plan" "app" {
   name                = "asp-myapp-prod-f1"
   resource_group_name = azurerm_resource_group.app.name
   location            = azurerm_resource_group.app.location
   os_type             = "Linux"
-  sku_name            = "B1"
+  sku_name            = "P1v2"
 }
 
 # -----------------------------------------------------------------------------
