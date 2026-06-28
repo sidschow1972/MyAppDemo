@@ -2,16 +2,13 @@
 # =============================================================================
 # Core application resources
 #
-# Traffic flow after App Gateway:
-#   Internet → App Gateway → APIM (internal VNet) → App Service (public)
-#                                                  → Key Vault (public)
+# Traffic flow:
+#   Internet → App Gateway → APIM → App Service (private endpoint, no public)
+#                                  → Key Vault  (private endpoint, no public)
 #
-# Note on private endpoints:
-#   F1 (Free tier) does not support private endpoints or VNet integration.
-#   App Service and Key Vault are accessible from APIM over the public internet.
-#   APIM itself is locked to Internal VNet mode (only App Gateway can reach it)
-#   which protects the API gateway layer. App Service and Key Vault rely on
-#   Azure's managed identity authentication as their access control boundary.
+# All traffic to App Service and Key Vault after APIM stays inside the VNet
+# via private endpoints. Public access is disabled on both services — the
+# only way to reach them is through the private endpoint NICs in snet-pe.
 # =============================================================================
 
 resource "azurerm_resource_group" "app" {
@@ -20,45 +17,42 @@ resource "azurerm_resource_group" "app" {
 }
 
 # -----------------------------------------------------------------------------
-# App Service Plan — F1 Free tier
+# App Service Plan — B1 Basic
 #
-# F1 is sufficient for a low-traffic demo workload. Limitations to be aware of:
-#   - No private endpoints or VNet integration (requires Basic tier or above)
-#   - No always_on (app idles after 20 min inactivity, cold-starts on next hit)
-#   - 60 CPU minutes/day limit
-#   - 1 GB storage
+# Why B1 and not F1 (Free)?
+#   F1 does not support private endpoints, VNet integration, or always_on.
+#   B1 is the minimum tier that supports private endpoints, which are required
+#   to lock App Service to VNet-only inbound access (no public internet).
 #
-# Region: East US 2 chosen over East US due to capacity availability for B1+
-# tiers. F1 is broadly available but we standardise on East US 2 for all
-# resources to keep latency consistent.
+# Cost: ~$13/month (up from $0 on F1).
 # -----------------------------------------------------------------------------
 resource "azurerm_service_plan" "app" {
   name                = "asp-myapp-prod-f1"
   resource_group_name = azurerm_resource_group.app.name
   location            = azurerm_resource_group.app.location
   os_type             = "Linux"
-  sku_name            = "F1"
+  sku_name            = "B1"
 }
 
 # -----------------------------------------------------------------------------
 # App Service (Linux, .NET 8)
 #
-# Why no public_network_access_enabled = false?
-#   F1 does not support private endpoints, so the App Service must remain
-#   publicly accessible for APIM to call it. APIM's service_url points to
-#   this App Service's public hostname. Access is implicitly restricted because
-#   APIM is the only consumer — nothing else knows this endpoint exists, and
-#   Key Vault secrets require a valid managed identity token to read.
+# Why public_network_access_enabled = false?
+#   Disabling public access means Azure rejects all inbound connections that
+#   do not arrive through the private endpoint NIC (pe-app-myapp-sid in
+#   snet-pe). Without this, the App Service still responds on its public URL
+#   even after the private endpoint is created — anyone who discovers the URL
+#   can bypass App Gateway and APIM entirely, skipping all policies.
 #
-# Why always_on = false?
-#   F1 does not support the always_on setting. The app will idle down after
-#   20 minutes of inactivity and cold-start on the next request (~2-3 seconds).
-#   Acceptable for a demo workload.
+# Why always_on = true?
+#   B1 supports always_on. Without it the app idles after 20 minutes and
+#   cold-starts on the next request. With a private endpoint and APIM in
+#   front, a cold-start would cause the first request to time out at APIM.
 #
 # Why SystemAssigned identity?
 #   The App Service authenticates to Key Vault using its managed identity.
 #   No credentials are stored anywhere — Azure issues short-lived tokens
-#   automatically. The Key Vault access policy below grants read-only access.
+#   automatically. The access policy below grants read-only secret access.
 # -----------------------------------------------------------------------------
 resource "azurerm_linux_web_app" "app" {
   name                = "app-myapp-sid"
@@ -66,24 +60,31 @@ resource "azurerm_linux_web_app" "app" {
   location            = azurerm_resource_group.app.location
   service_plan_id     = azurerm_service_plan.app.id
 
+  # Block all inbound traffic that does not arrive via the private endpoint
+  # (pe-app-myapp-sid) defined in appgateway.tf. APIM reaches App Service
+  # through that private endpoint — never over the public internet.
+  public_network_access_enabled = false
+
   site_config {
     application_stack {
       dotnet_version = "8.0"
     }
-    # F1 does not support always_on — must be false on Free tier.
-    always_on = false
+    # Keep a worker process alive permanently. B1 supports this.
+    # Required so APIM's backend calls never hit a cold-start timeout.
+    always_on = true
   }
 
   app_settings = {
     "ASPNETCORE_ENVIRONMENT" = "Production"
 
-    # App Service reads this URI at startup to connect to Key Vault.
-    # On F1, this call goes over the public internet using the managed
-    # identity token — no private endpoint available on this tier.
+    # App Service reads this URI to connect to Key Vault at startup.
+    # With public access disabled on Key Vault, this resolves via the
+    # privatelink.vaultcore.azure.net DNS zone to the private endpoint IP.
     "KeyVaultUri" = azurerm_key_vault.app.vault_uri
 
-    # Application Insights connection string injected as an app setting.
-    # The SDK picks this up automatically to send telemetry.
+    # Application Insights SDK uses this to send telemetry outbound.
+    # Outbound traffic from App Service still goes to the internet
+    # (private endpoint only locks down inbound).
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.app.connection_string
   }
 
@@ -95,27 +96,29 @@ resource "azurerm_linux_web_app" "app" {
 # -----------------------------------------------------------------------------
 # Key Vault
 #
-# Why no public_network_access_enabled = false?
-#   F1 App Service cannot use private endpoints, so Key Vault must remain
-#   publicly accessible for the App Service managed identity to reach it.
-#   Access is controlled by the access policy below — only the App Service's
-#   managed identity has Get/List on secrets. No other principal can read them.
+# Why public_network_access_enabled = false?
+#   Same reason as App Service — without this, Key Vault still responds to
+#   requests from the public internet even after the private endpoint exists.
+#   Disabling ensures only the App Service (via its private endpoint in snet-pe)
+#   can reach Key Vault. Access is further restricted by the access policy below
+#   which only grants the App Service managed identity read-only secret access.
 # -----------------------------------------------------------------------------
 resource "azurerm_key_vault" "app" {
-  name                = "kv-myapp-sid"
-  resource_group_name = azurerm_resource_group.app.name
-  location            = azurerm_resource_group.app.location
-  tenant_id           = data.azurerm_client_config.current.tenant_id
-  sku_name            = "standard"
+  name                          = "kv-myapp-sid"
+  resource_group_name           = azurerm_resource_group.app.name
+  location                      = azurerm_resource_group.app.location
+  tenant_id                     = data.azurerm_client_config.current.tenant_id
+  sku_name                      = "standard"
+  public_network_access_enabled = false
 }
 
 # -----------------------------------------------------------------------------
-# Key Vault access policy for App Service
+# Key Vault access policy for App Service managed identity
 #
 # Why Get and List only?
 #   Principle of least privilege — the app only reads secrets, never writes.
-#   If the app were compromised, the attacker could not create, update, or
-#   delete secrets stored in Key Vault.
+#   If the app were compromised, an attacker could not create, update, or
+#   delete secrets. Get = fetch a specific secret value. List = enumerate names.
 # -----------------------------------------------------------------------------
 resource "azurerm_key_vault_access_policy" "app_identity" {
   key_vault_id = azurerm_key_vault.app.id
@@ -126,9 +129,7 @@ resource "azurerm_key_vault_access_policy" "app_identity" {
 }
 
 # -----------------------------------------------------------------------------
-# Azure Load Test
-# Placeholder for the commented-out LoadTest pipeline stage.
-# Kept here so the resource exists before that stage is re-enabled.
+# Azure Load Test — placeholder for the LoadTest pipeline stage.
 # -----------------------------------------------------------------------------
 resource "azurerm_load_test" "app" {
   name                = "lt-myapp-sid"
@@ -138,9 +139,7 @@ resource "azurerm_load_test" "app" {
 
 # -----------------------------------------------------------------------------
 # Log Analytics Workspace
-#
-# Application Insights requires a Log Analytics workspace in workspace-based
-# mode (default since 2021). All telemetry is stored here.
+# Required by Application Insights in workspace-based mode (default since 2021).
 # 30-day retention balances cost vs. debugging horizon for this workload.
 # -----------------------------------------------------------------------------
 resource "azurerm_log_analytics_workspace" "app" {
@@ -153,9 +152,8 @@ resource "azurerm_log_analytics_workspace" "app" {
 
 # -----------------------------------------------------------------------------
 # Application Insights
-#
-# Collects request traces, dependency calls (Key Vault, Open-Meteo HTTP),
-# exceptions, and performance counters from the App Service.
+# Collects request traces, dependency calls, exceptions, and performance
+# counters from the App Service via the connection string injected above.
 # -----------------------------------------------------------------------------
 resource "azurerm_application_insights" "app" {
   name                = "appi-myapp-prod"
@@ -164,28 +162,3 @@ resource "azurerm_application_insights" "app" {
   application_type    = "web"
   workspace_id        = azurerm_log_analytics_workspace.app.id
 }
-
-# --- GitHub Actions federated identity (OIDC, no stored secret) ---
-# Uncomment and fill in if deploying from GitHub instead of Azure DevOps.
-
-# resource "azuread_application" "github_deploy" {
-#   display_name = "github-actions-myapp-deploy"
-# }
-#
-# resource "azuread_service_principal" "github_deploy" {
-#   client_id = azuread_application.github_deploy.client_id
-# }
-#
-# resource "azuread_application_federated_identity_credential" "github" {
-#   application_id = azuread_application.github_deploy.id
-#   display_name   = "github-actions-myapp"
-#   audiences      = ["api://AzureADTokenExchange"]
-#   issuer         = "https://token.actions.githubusercontent.com"
-#   subject        = "repo:my-org/my-app-repo:ref:refs/heads/main"
-# }
-#
-# resource "azurerm_role_assignment" "github_deploy_contributor" {
-#   scope                = azurerm_resource_group.app.id
-#   role_definition_name = "Website Contributor"
-#   principal_id         = azuread_service_principal.github_deploy.object_id
-# }

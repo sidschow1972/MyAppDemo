@@ -248,15 +248,23 @@ stages:
         pool:
           vmImage: ubuntu-latest
         steps:
-          # Smoke test App Service directly (public endpoint, F1 tier).
+          # Smoke test via APIM gateway.
+          #
+          # Why not hit app-myapp-sid.azurewebsites.net directly?
+          #   App Service has public_network_access_enabled = false. The pipeline
+          #   agent is outside the VNet, so a direct call gets blocked (403/refused).
+          #   Routing through APIM validates both APIM and App Service together.
+          #
+          # If deploy_apim = false, swap in the App Service URL and temporarily
+          # set public_network_access_enabled = true to allow the agent through.
           - script: |
               for i in {1..10}; do
                 echo "Attempt $i..."
-                curl -f https://app-myapp-sid.azurewebsites.net/health && exit 0
+                curl -f https://apim-myapp-sid.azure-api.net/myapp/health && exit 0
                 sleep 15
               done
               exit 1
-            displayName: 'Smoke test App Service'
+            displayName: 'Smoke test via APIM'
 
           # Smoke test AKS — disabled while deploy_aks = false.
           # Re-enable when deploy_aks is toggled back to true.
