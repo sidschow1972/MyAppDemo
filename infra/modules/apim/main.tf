@@ -54,9 +54,9 @@ resource "azurerm_network_security_group" "apim" {
   resource_group_name = var.resource_group_name
   location            = var.location
 
-  # Rule 1 — Azure control-plane health checks.
+  # Rule 1 — Azure control-plane health checks (mandatory).
   # Azure sends these from its own infrastructure to verify APIM is alive.
-  # The ApiManagement service tag represents the IP ranges Azure uses.
+  # Without this rule Azure refuses to place APIM in the subnet at all.
   security_rule {
     name                       = "allow-apim-management-inbound"
     priority                   = 100
@@ -69,7 +69,27 @@ resource "azurerm_network_security_group" "apim" {
     destination_address_prefix = "VirtualNetwork"
   }
 
-  # Rule 2 — Gateway traffic from App Gateway only.
+  # Rule 2 — Public management endpoint access on port 3443.
+  # In External VNet mode the management endpoint is designed to be publicly
+  # reachable — that is the whole point of External vs Internal mode.
+  # The ApiManagement rule above covers Azure health checks, but ARM (which
+  # the Terraform provider calls to create APIs, operations, and policies)
+  # reaches APIM management on port 3443 from IPs outside the ApiManagement
+  # tag. Without this rule those calls are dropped by the NSG and Terraform
+  # gets 422 when trying to manage any APIM child resource.
+  security_rule {
+    name                       = "allow-management-public"
+    priority                   = 105
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "3443"
+    source_address_prefix      = "Internet"
+    destination_address_prefix = "VirtualNetwork"
+  }
+
+  # Rule 3 — Gateway traffic from App Gateway only.
   # Restricting source to the App Gateway subnet CIDR (var.app_gateway_subnet_cidr,
   # default 10.0.1.0/24) rather than "Internet" closes a significant gap:
   # with "Internet" as source, anyone who discovers the APIM gateway FQDN
