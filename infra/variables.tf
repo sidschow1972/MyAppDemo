@@ -20,7 +20,7 @@ variable "deploy_apim" {
     App Gateway has no backend to forward to without APIM.
   DESC
   type    = bool
-  default = false
+  default = true
 }
 
 variable "deploy_app_gateway" {
@@ -32,5 +32,5 @@ variable "deploy_app_gateway" {
     To restore:   change default back to true, push, approve.
   DESC
   type    = bool
-  default = false
+  default = true
 }
