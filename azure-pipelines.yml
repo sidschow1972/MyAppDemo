@@ -355,23 +355,44 @@ stages:
         pool:
           vmImage: ubuntu-latest
         steps:
-          # Smoke test via APIM gateway.
+          # Smoke test via App Gateway → APIM → App Service.
           #
-          # Why not hit app-myapp-sid.azurewebsites.net directly?
-          #   App Service has public_network_access_enabled = false. The pipeline
-          #   agent is outside the VNet, so a direct call gets blocked (403/refused).
-          #   Routing through APIM validates both APIM and App Service together.
+          # Why App Gateway and not APIM directly?
+          #   The NSG on snet-apim restricts port 443 inbound to the App Gateway
+          #   subnet CIDR (10.0.1.0/24) only. The Microsoft-hosted pipeline agent
+          #   comes from the internet, so a direct curl to apim-myapp-sid.azure-api.net
+          #   port 443 is dropped by the NSG — that is correct security posture.
+          #   Routing through App Gateway (port 80, publicly reachable from anywhere)
+          #   tests the real user path: internet → App Gateway → APIM → App Service.
           #
-          # If deploy_apim = false, swap in the App Service URL and temporarily
-          # set public_network_access_enabled = true to allow the agent through.
-          - script: |
-              for i in {1..10}; do
-                echo "Attempt $i..."
-                curl -f https://apim-myapp-sid.azure-api.net/myapp/health && exit 0
-                sleep 15
-              done
-              exit 1
-            displayName: 'Smoke test via APIM'
+          # Why port 80 and not 443 to App Gateway?
+          #   App Gateway is configured with an HTTP listener on port 80. No TLS
+          #   certificate has been attached to the gateway, so there is no HTTPS
+          #   listener. Port 80 → App Gateway → port 443 → APIM (the TLS hop is
+          #   between App Gateway and APIM, not between the agent and App Gateway).
+          #
+          # The App Gateway public IP is fetched dynamically so no hardcoded IP
+          # is needed in the pipeline — it always matches whatever is deployed.
+          - task: AzureCLI@2
+            displayName: 'Smoke test via App Gateway → APIM'
+            inputs:
+              azureSubscription: 'myapp-service-connection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                APPGW_IP=$(az network public-ip show \
+                  --resource-group rg-myapp-prod \
+                  --name pip-appgw-prod \
+                  --query ipAddress \
+                  --output tsv)
+                echo "App Gateway public IP: $APPGW_IP"
+
+                for i in {1..10}; do
+                  echo "Attempt $i..."
+                  curl -f "http://$APPGW_IP/myapp/health" && exit 0
+                  sleep 15
+                done
+                exit 1
 
           # Smoke test AKS — disabled while deploy_aks = false.
           # Re-enable when deploy_aks is toggled back to true.
