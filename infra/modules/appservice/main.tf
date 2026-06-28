@@ -63,7 +63,15 @@ resource "azurerm_linux_web_app" "app" {
   resource_group_name           = var.resource_group_name
   location                      = var.location
   service_plan_id               = azurerm_service_plan.app.id
-  public_network_access_enabled = false
+  # Why true and not false?
+  # The pipeline agent (Microsoft-hosted, outside the VNet) deploys via the
+  # Kudu/SCM endpoint (app-myapp-sid.scm.azurewebsites.net). With false, that
+  # endpoint is blocked and deployment fails with 403. The private endpoint in
+  # snet-pe still exists and controls how APIM reaches the app — setting this
+  # to true does not remove the private endpoint, it just allows the SCM
+  # endpoint to remain reachable for deployments. The proper fix is a
+  # self-hosted pipeline agent inside the VNet (set false + agent in VNet).
+  public_network_access_enabled = true
 
   site_config {
     application_stack {
