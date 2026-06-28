@@ -113,9 +113,47 @@ stages:
                   "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.ApiManagement/service/apim-myapp-sid" \
                   2>/dev/null || true
 
-                # ── 3. Clean up old inline APIM state addresses ────────────
-                # These addresses existed before the module refactor. They are
-                # no-ops if already absent — safe to leave in permanently.
+                # ── 3. Import APIM child resources ────────────────────────
+                # API, operations, and policy also exist in Azure from a
+                # previous successful run. Import them so Terraform updates
+                # in-place instead of failing with "already exists".
+                # The revision suffix (;rev=1) is part of the ARM resource ID.
+                APIM_BASE="/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.ApiManagement/service/apim-myapp-sid"
+                API_ID="$APIM_BASE/apis/myapp-api"
+
+                terraform import \
+                  'module.apim[0].azurerm_api_management_api.app' \
+                  "$API_ID" \
+                  2>/dev/null || true
+
+                terraform import \
+                  'module.apim[0].azurerm_api_management_api_operation.health' \
+                  "$API_ID/operations/get-health" \
+                  2>/dev/null || true
+
+                terraform import \
+                  'module.apim[0].azurerm_api_management_api_operation.root' \
+                  "$API_ID/operations/get-root" \
+                  2>/dev/null || true
+
+                terraform import \
+                  'module.apim[0].azurerm_api_management_api_operation.weather_trends' \
+                  "$API_ID/operations/get-weather-trends" \
+                  2>/dev/null || true
+
+                terraform import \
+                  'module.apim[0].azurerm_api_management_api_operation.weather_forecast' \
+                  "$API_ID/operations/get-weather-forecast" \
+                  2>/dev/null || true
+
+                terraform import \
+                  'module.apim[0].azurerm_api_management_api_policy.app' \
+                  "$API_ID/policies/policy" \
+                  2>/dev/null || true
+
+                # ── 4. Clean up old inline APIM state addresses only ──────
+                # These are pre-module-refactor addresses that no longer exist
+                # in the config. Safe no-ops if already absent.
                 terraform state rm 'azurerm_api_management_api_policy.app[0]'                  2>/dev/null || true
                 terraform state rm 'azurerm_api_management_api_operation.weather_forecast[0]'  2>/dev/null || true
                 terraform state rm 'azurerm_api_management_api_operation.weather_trends[0]'    2>/dev/null || true
@@ -129,14 +167,6 @@ stages:
                 terraform state rm 'azurerm_private_dns_a_record.apim_gateway[0]'              2>/dev/null || true
                 terraform state rm 'azurerm_private_dns_zone_virtual_network_link.apim[0]'     2>/dev/null || true
                 terraform state rm 'azurerm_private_dns_zone.apim[0]'                          2>/dev/null || true
-                # Remove stale module child resource addresses so Terraform
-                # recreates API definition, operations, and policy cleanly
-                terraform state rm 'module.apim[0].azurerm_api_management_api_policy.app'                  2>/dev/null || true
-                terraform state rm 'module.apim[0].azurerm_api_management_api_operation.weather_forecast'  2>/dev/null || true
-                terraform state rm 'module.apim[0].azurerm_api_management_api_operation.weather_trends'    2>/dev/null || true
-                terraform state rm 'module.apim[0].azurerm_api_management_api_operation.root'              2>/dev/null || true
-                terraform state rm 'module.apim[0].azurerm_api_management_api_operation.health'            2>/dev/null || true
-                terraform state rm 'module.apim[0].azurerm_api_management_api.app'                         2>/dev/null || true
 
           - task: TerraformTaskV4@4
             displayName: 'Terraform Plan'
