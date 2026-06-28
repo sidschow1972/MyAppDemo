@@ -213,9 +213,15 @@ resource "azurerm_api_management" "app" {
 
   sku_name = "Developer_1"
 
-  # Internal mode: gateway URL resolves to a private IP inside the VNet only.
-  # Nothing on the internet can connect to APIM directly.
-  virtual_network_type = "Internal"
+  # External mode: APIM gets both a public IP and a private IP in the subnet.
+  # The management endpoint (port 3443) is publicly accessible — required for
+  # Terraform to manage policies and operations from the pipeline agent which
+  # runs outside the VNet. Internal mode blocks the management endpoint and
+  # causes plan/apply to fail with a 422 Unprocessable Entity error.
+  # The gateway URL also resolves to a public IP externally, but App Gateway
+  # (inside the VNet) resolves it to the private IP via the azure-api.net
+  # private DNS zone — so the App Gateway → APIM hop stays internal.
+  virtual_network_type = "External"
   virtual_network_configuration {
     subnet_id = azurerm_subnet.apim[0].id
   }
