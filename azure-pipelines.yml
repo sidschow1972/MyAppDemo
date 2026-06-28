@@ -146,9 +146,12 @@ stages:
                   "$API_ID/operations/get-weather-forecast" \
                   2>/dev/null || true
 
+                # azurerm_api_management_api_policy imports using the parent
+                # API resource ID — the policy is a singleton child and is not
+                # a separate segment in the ARM resource ID.
                 terraform import \
                   'module.apim[0].azurerm_api_management_api_policy.app' \
-                  "$API_ID/policies/policy" \
+                  "$API_ID" \
                   2>/dev/null || true
 
                 # ── 4. Clean up old inline APIM state addresses only ──────
