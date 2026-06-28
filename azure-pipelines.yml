@@ -33,6 +33,37 @@ stages:
               backendAzureRmContainerName: 'tfstate'
               backendAzureRmKey: 'myapp.terraform.tfstate'
 
+          # ── One-time stale state cleanup ───────────────────────────────
+          # APIM was previously created with VNet integration. The Terraform
+          # state still records those resources, so the provider tries to
+          # refresh them by calling the (now-unreachable) VNet management
+          # endpoint and fails with 422. Removing them from state lets
+          # Terraform treat APIM as a new resource on this plan.
+          # The || true prevents the step failing if the resource is already
+          # absent from state. This step is safe to leave in permanently —
+          # state rm on a non-existent resource is a no-op.
+          - task: AzureCLI@2
+            displayName: 'Clear stale APIM state'
+            inputs:
+              azureSubscription: 'myapp-service-connection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                cd $(System.DefaultWorkingDirectory)/infra
+                terraform state rm 'azurerm_api_management_api_policy.app[0]'      2>/dev/null || true
+                terraform state rm 'azurerm_api_management_api_operation.weather_forecast[0]' 2>/dev/null || true
+                terraform state rm 'azurerm_api_management_api_operation.weather_trends[0]'   2>/dev/null || true
+                terraform state rm 'azurerm_api_management_api_operation.root[0]'   2>/dev/null || true
+                terraform state rm 'azurerm_api_management_api_operation.health[0]' 2>/dev/null || true
+                terraform state rm 'azurerm_api_management_api.app[0]'              2>/dev/null || true
+                terraform state rm 'azurerm_api_management.app[0]'                  2>/dev/null || true
+                terraform state rm 'azurerm_subnet_network_security_group_association.apim[0]' 2>/dev/null || true
+                terraform state rm 'azurerm_network_security_group.apim[0]'         2>/dev/null || true
+                terraform state rm 'azurerm_subnet.apim[0]'                         2>/dev/null || true
+                terraform state rm 'azurerm_private_dns_a_record.apim_gateway[0]'   2>/dev/null || true
+                terraform state rm 'azurerm_private_dns_zone_virtual_network_link.apim[0]' 2>/dev/null || true
+                terraform state rm 'azurerm_private_dns_zone.apim[0]'               2>/dev/null || true
+
           - task: TerraformTaskV4@4
             displayName: 'Terraform Plan'
             inputs:
