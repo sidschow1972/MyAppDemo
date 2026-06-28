@@ -70,11 +70,38 @@ stages:
                 terraform state mv 'azurerm_log_analytics_workspace.app'          'module.appservice.azurerm_log_analytics_workspace.app'          2>/dev/null || true
                 terraform state mv 'azurerm_application_insights.app'             'module.appservice.azurerm_application_insights.app'             2>/dev/null || true
 
-                # ── 2. Clear all APIM state entries ───────────────────────
-                # APIM and its networking resources (subnet, NSG, association)
-                # have been manually deleted from Azure before this pipeline run.
-                # state rm ensures no stale entries remain so Terraform creates
-                # everything fresh at the new module addresses.
+                # ── 2. Import APIM resources into state at module addresses ───
+                # APIM, snet-apim, nsg-apim, and the NSG association all exist
+                # in Azure but have no state entries (state rm cleared them in
+                # earlier runs). Import pulls each resource into state at the
+                # correct module.apim[0].* address so Terraform plans an
+                # in-place update rather than trying to create and hitting
+                # "already exists". Safe to run on every pipeline — import is
+                # a no-op if the resource is already in state at that address.
+                terraform import \
+                  'module.apim[0].azurerm_subnet.apim' \
+                  "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Network/virtualNetworks/$VNET/subnets/snet-apim" \
+                  2>/dev/null || true
+
+                terraform import \
+                  'module.apim[0].azurerm_network_security_group.apim' \
+                  "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Network/networkSecurityGroups/nsg-apim" \
+                  2>/dev/null || true
+
+                # NSG association ID is the subnet resource ID
+                terraform import \
+                  'module.apim[0].azurerm_subnet_network_security_group_association.apim' \
+                  "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Network/virtualNetworks/$VNET/subnets/snet-apim" \
+                  2>/dev/null || true
+
+                terraform import \
+                  'module.apim[0].azurerm_api_management.apim' \
+                  "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.ApiManagement/service/apim-myapp-sid" \
+                  2>/dev/null || true
+
+                # ── 3. Clean up old inline APIM state addresses ────────────
+                # These addresses existed before the module refactor. They are
+                # no-ops if already absent — safe to leave in permanently.
                 terraform state rm 'azurerm_api_management_api_policy.app[0]'                  2>/dev/null || true
                 terraform state rm 'azurerm_api_management_api_operation.weather_forecast[0]'  2>/dev/null || true
                 terraform state rm 'azurerm_api_management_api_operation.weather_trends[0]'    2>/dev/null || true
@@ -88,16 +115,14 @@ stages:
                 terraform state rm 'azurerm_private_dns_a_record.apim_gateway[0]'              2>/dev/null || true
                 terraform state rm 'azurerm_private_dns_zone_virtual_network_link.apim[0]'     2>/dev/null || true
                 terraform state rm 'azurerm_private_dns_zone.apim[0]'                          2>/dev/null || true
+                # Remove stale module child resource addresses so Terraform
+                # recreates API definition, operations, and policy cleanly
                 terraform state rm 'module.apim[0].azurerm_api_management_api_policy.app'                  2>/dev/null || true
                 terraform state rm 'module.apim[0].azurerm_api_management_api_operation.weather_forecast'  2>/dev/null || true
                 terraform state rm 'module.apim[0].azurerm_api_management_api_operation.weather_trends'    2>/dev/null || true
                 terraform state rm 'module.apim[0].azurerm_api_management_api_operation.root'              2>/dev/null || true
                 terraform state rm 'module.apim[0].azurerm_api_management_api_operation.health'            2>/dev/null || true
                 terraform state rm 'module.apim[0].azurerm_api_management_api.app'                         2>/dev/null || true
-                terraform state rm 'module.apim[0].azurerm_api_management.apim'                            2>/dev/null || true
-                terraform state rm 'module.apim[0].azurerm_subnet_network_security_group_association.apim' 2>/dev/null || true
-                terraform state rm 'module.apim[0].azurerm_network_security_group.apim'                    2>/dev/null || true
-                terraform state rm 'module.apim[0].azurerm_subnet.apim'                                    2>/dev/null || true
 
           - task: TerraformTaskV4@4
             displayName: 'Terraform Plan'
