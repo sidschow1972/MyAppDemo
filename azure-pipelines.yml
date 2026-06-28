@@ -55,7 +55,21 @@ stages:
               azureSubscription: 'myapp-service-connection'
               scriptType: 'bash'
               scriptLocation: 'inlineScript'
+              # addSpnToEnvironment exposes the service principal credentials
+              # as $servicePrincipalId, $servicePrincipalKey, $tenantId.
+              # Without this, terraform import inside AzureCLI@2 cannot
+              # authenticate the azurerm provider and silently fails — the
+              # imports appear to run but do nothing, leaving the resources
+              # out of state so plan shows "create" and apply hits "already exists".
+              addSpnToEnvironment: true
               inlineScript: |
+                # Pass service principal credentials to the azurerm provider.
+                # TerraformTaskV4 sets these automatically; AzureCLI@2 does not.
+                export ARM_CLIENT_ID=$servicePrincipalId
+                export ARM_CLIENT_SECRET=$servicePrincipalKey
+                export ARM_TENANT_ID=$tenantId
+                export ARM_SUBSCRIPTION_ID='abacfdae-513e-452c-89e2-539ebce94192'
+
                 cd $(System.DefaultWorkingDirectory)/infra
                 SUB='abacfdae-513e-452c-89e2-539ebce94192'
                 RG='rg-myapp-prod'
