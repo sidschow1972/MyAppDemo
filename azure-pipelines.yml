@@ -70,41 +70,11 @@ stages:
                 terraform state mv 'azurerm_log_analytics_workspace.app'          'module.appservice.azurerm_log_analytics_workspace.app'          2>/dev/null || true
                 terraform state mv 'azurerm_application_insights.app'             'module.appservice.azurerm_application_insights.app'             2>/dev/null || true
 
-                # ── 2. Import APIM infrastructure at new module addresses ───
-                # state rm was used previously but left these resources in Azure
-                # with no state entry — Terraform then fails with "already exists"
-                # on the next create attempt. Import is the correct fix: it pulls
-                # the existing Azure resource into state at the new address so
-                # Terraform does an in-place update instead.
-                #
-                # snet-apim subnet
-                terraform import \
-                  'module.apim[0].azurerm_subnet.apim' \
-                  "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Network/virtualNetworks/$VNET/subnets/snet-apim" \
-                  2>/dev/null || true
-
-                # APIM NSG
-                terraform import \
-                  'module.apim[0].azurerm_network_security_group.apim' \
-                  "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Network/networkSecurityGroups/nsg-apim" \
-                  2>/dev/null || true
-
-                # NSG ↔ subnet association (uses the subnet ID as its own ID)
-                terraform import \
-                  'module.apim[0].azurerm_subnet_network_security_group_association.apim' \
-                  "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Network/virtualNetworks/$VNET/subnets/snet-apim" \
-                  2>/dev/null || true
-
-                # APIM instance itself
-                terraform import \
-                  'module.apim[0].azurerm_api_management.apim' \
-                  "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.ApiManagement/service/apim-myapp-sid" \
-                  2>/dev/null || true
-
-                # ── 3. Remove APIM child resources (recreated quickly) ──────
-                # API definition, operations, and policy are lightweight and
-                # recreate in seconds. Importing them is more complex than just
-                # letting Terraform create them fresh.
+                # ── 2. Clear all APIM state entries ───────────────────────
+                # APIM and its networking resources (subnet, NSG, association)
+                # have been manually deleted from Azure before this pipeline run.
+                # state rm ensures no stale entries remain so Terraform creates
+                # everything fresh at the new module addresses.
                 terraform state rm 'azurerm_api_management_api_policy.app[0]'                  2>/dev/null || true
                 terraform state rm 'azurerm_api_management_api_operation.weather_forecast[0]'  2>/dev/null || true
                 terraform state rm 'azurerm_api_management_api_operation.weather_trends[0]'    2>/dev/null || true
@@ -124,6 +94,10 @@ stages:
                 terraform state rm 'module.apim[0].azurerm_api_management_api_operation.root'              2>/dev/null || true
                 terraform state rm 'module.apim[0].azurerm_api_management_api_operation.health'            2>/dev/null || true
                 terraform state rm 'module.apim[0].azurerm_api_management_api.app'                         2>/dev/null || true
+                terraform state rm 'module.apim[0].azurerm_api_management.apim'                            2>/dev/null || true
+                terraform state rm 'module.apim[0].azurerm_subnet_network_security_group_association.apim' 2>/dev/null || true
+                terraform state rm 'module.apim[0].azurerm_network_security_group.apim'                    2>/dev/null || true
+                terraform state rm 'module.apim[0].azurerm_subnet.apim'                                    2>/dev/null || true
 
           - task: TerraformTaskV4@4
             displayName: 'Terraform Plan'
