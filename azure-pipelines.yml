@@ -21,6 +21,30 @@ stages:
             inputs:
               terraformVersion: '1.7.5'
 
+          # ── Protect tfstate storage account ───────────────────────────
+          # The state backend storage account is not managed by Terraform
+          # (bootstrap resource — predates the Terraform config). These
+          # settings are applied here to ensure they are always in place:
+          #   versioning    — keeps every previous version of the state blob
+          #                   so a corrupted state can be restored to any
+          #                   prior point without manual reconstruction.
+          #   soft-delete   — retains deleted/overwritten blobs for 30 days
+          #                   as a second safety net.
+          # Both commands are idempotent — safe to run on every pipeline.
+          - task: AzureCLI@2
+            displayName: 'Enable tfstate versioning and soft delete'
+            inputs:
+              azureSubscription: 'myapp-service-connection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az storage account blob-service-properties update \
+                  --account-name stmyapptfstatesid \
+                  --resource-group rg-tfstate \
+                  --enable-versioning true \
+                  --enable-delete-retention true \
+                  --delete-retention-days 30
+
           - task: TerraformTaskV4@4
             displayName: 'Terraform Init'
             inputs:
