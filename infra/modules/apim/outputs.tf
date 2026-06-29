@@ -21,8 +21,13 @@ output "gateway_fqdn" {
 #   FQDN in the Host header (set explicitly in backend_http_settings) so APIM
 #   routes requests correctly.
 output "private_ip_address" {
-  value       = azurerm_api_management.apim.private_ip_addresses[0]
-  description = "APIM private VNet IP — used as the App Gateway backend pool target so traffic stays inside the VNet."
+  # try() guards against the empty-list case that occurs when APIM is in state
+  # but its VNet config hasn't been applied yet (e.g. first apply after import
+  # when virtual_network_type is still being changed from None → External).
+  # Once apply runs and APIM is in External mode, private_ip_addresses[0] is
+  # populated and subsequent plans use the real IP.
+  value       = try(azurerm_api_management.apim.private_ip_addresses[0], null)
+  description = "APIM private VNet IP — used as the App Gateway backend pool target so traffic stays inside the VNet. Null until APIM is in External VNet mode."
 }
 
 # Full gateway URL — useful for smoke tests and documentation.

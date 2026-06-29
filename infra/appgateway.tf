@@ -180,8 +180,13 @@ resource "azurerm_application_gateway" "app" {
   # When deploy_apim = false the pool is intentionally empty; set
   # deploy_app_gateway = false as well when APIM is off.
   backend_address_pool {
-    name         = "apim-backend-pool"
-    ip_addresses = var.deploy_apim ? [module.apim[0].private_ip_address] : []
+    name = "apim-backend-pool"
+    # null guard: private_ip_address is null on the first apply after APIM is
+    # imported but before External VNet mode has been applied (private IPs not
+    # yet assigned). The pool is intentionally empty in that window — APIM
+    # will receive its private IP during this same apply and subsequent plans
+    # will populate the pool with the real IP.
+    ip_addresses = var.deploy_apim && module.apim[0].private_ip_address != null ? [module.apim[0].private_ip_address] : []
   }
 
   # Custom health probe targeting APIM's built-in gateway status endpoint.

@@ -84,6 +84,17 @@ stages:
                 terraform state mv 'azurerm_log_analytics_workspace.app'          'module.appservice.azurerm_log_analytics_workspace.app'          2>/dev/null || true
                 terraform state mv 'azurerm_application_insights.app'             'module.appservice.azurerm_application_insights.app'             2>/dev/null || true
 
+                # ── 1b. Import appservice resources that were never state-mv'd ──
+                # azurerm_app_service_virtual_network_swift_connection was added
+                # as part of the module and was never at a root-level address,
+                # so state mv does not apply. Import it directly at the module
+                # address. Import ID format (azurerm docs): {app_service_id}/config/virtualNetwork
+                APP_SERVICE_ID="/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Web/sites/app-myapp-sid"
+                terraform import \
+                  'module.appservice.azurerm_app_service_virtual_network_swift_connection.app' \
+                  "$APP_SERVICE_ID/config/virtualNetwork" \
+                  2>/dev/null || true
+
                 # ── 2. Import APIM resources into state at module addresses ───
                 # APIM, snet-apim, nsg-apim, and the NSG association all exist
                 # in Azure but have no state entries (state rm cleared them in
