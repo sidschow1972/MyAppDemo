@@ -155,13 +155,17 @@ resource "azurerm_api_management" "apim" {
 # private endpoint IP (via privatelink.azurewebsites.net DNS zone) so traffic
 # stays inside the VNet — APIM never calls the public App Service IP.
 resource "azurerm_api_management_api" "app" {
-  name                = "myapp-api"
-  resource_group_name = var.resource_group_name
-  api_management_name = azurerm_api_management.apim.name
-  revision            = "1"
-  display_name        = "MyApp API"
-  path                = "myapp"
-  protocols           = ["https"]
+  name                  = "myapp-api"
+  resource_group_name   = var.resource_group_name
+  api_management_name   = azurerm_api_management.apim.name
+  revision              = "1"
+  display_name          = "MyApp API"
+  path                  = "myapp"
+  protocols             = ["https"]
+  # Callers do not need a subscription key — the NSG already restricts port 443
+  # inbound to App Gateway's public IP only, so unauthenticated requests from
+  # arbitrary internet sources cannot reach APIM in the first place.
+  subscription_required = false
 
   service_url = "https://${var.app_service_hostname}"
 }
