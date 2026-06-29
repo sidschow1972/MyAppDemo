@@ -180,6 +180,27 @@ resource "azurerm_application_gateway" "app" {
     fqdns = var.deploy_apim ? [module.apim[0].gateway_fqdn] : []
   }
 
+  # Custom health probe targeting /myapp/health (returns HTTP 200).
+  # Without this, App Gateway uses its default probe which hits the root path
+  # "/" on port 443. APIM returns 404 at the root (no API registered there),
+  # App Gateway treats 404 as unhealthy, marks the backend down, and returns
+  # 502 to every incoming request even though APIM is fully operational.
+  # pick_host_name_from_backend_http_settings sends the APIM FQDN as the SNI
+  # and Host header, matching what APIM expects from the gateway.
+  probe {
+    name                                      = "apim-health-probe"
+    protocol                                  = "Https"
+    path                                      = "/myapp/health"
+    interval                                  = 30
+    timeout                                   = 30
+    unhealthy_threshold                       = 3
+    pick_host_name_from_backend_http_settings = true
+
+    match {
+      status_code = ["200-399"]
+    }
+  }
+
   # pick_host_name_from_backend_address sends the APIM FQDN in the Host header.
   # APIM uses the Host header to identify which gateway instance handles the
   # request — without it APIM returns 400 Bad Request.
@@ -190,6 +211,7 @@ resource "azurerm_application_gateway" "app" {
     protocol                            = "Https"
     request_timeout                     = 30
     pick_host_name_from_backend_address = true
+    probe_name                          = "apim-health-probe"
   }
 
   http_listener {
