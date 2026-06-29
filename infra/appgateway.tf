@@ -252,10 +252,11 @@ resource "azurerm_application_gateway" "app" {
 # See that directory for a full explanation of External VNet mode and why
 # it keeps the management endpoint reachable by the hosted pipeline agent.
 #
-# app_gateway_subnet_cidr is passed to the module but no longer used for NSG
-# port 443 — External VNet mode requires Internet as the source for port 443
-# since APIM's gateway is served from its public VIP. The variable is kept for
-# potential future use (e.g. WAF rules or IP filtering policies in APIM).
+# app_gateway_public_ip is passed to the APIM module NSG so port 443 inbound
+# is restricted to App Gateway's specific public IP only — not all of Internet.
+# This blocks anyone calling the APIM gateway URL directly without going through
+# App Gateway, while still allowing the traffic path that actually works in
+# External VNet mode (App Gateway public IP → APIM public VIP).
 module "apim" {
   count  = var.deploy_apim ? 1 : 0
   source = "./modules/apim"
@@ -266,7 +267,7 @@ module "apim" {
   virtual_network_id      = azurerm_virtual_network.app.id
   publisher_email         = "sidschow1972@gmail.com"
   app_service_hostname    = module.appservice.app_service_default_hostname
-  app_gateway_subnet_cidr = var.deploy_app_gateway ? azurerm_subnet.appgw[0].address_prefixes[0] : "10.0.1.0/24"
+  app_gateway_public_ip   = var.deploy_app_gateway ? azurerm_public_ip.appgw[0].ip_address : "Internet"
 }
 
 # =============================================================================

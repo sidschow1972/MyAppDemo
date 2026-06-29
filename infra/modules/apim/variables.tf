@@ -34,14 +34,16 @@ variable "app_service_hostname" {
   DESC
 }
 
-variable "app_gateway_subnet_cidr" {
+variable "app_gateway_public_ip" {
   type        = string
   description = <<-DESC
-    Address prefix of the App Gateway subnet (snet-appgw), e.g. "10.0.1.0/24".
-    Used in the NSG to restrict inbound port 443 to App Gateway only.
-    Without this restriction anyone can call the APIM gateway endpoint directly
-    from the internet, bypassing App Gateway and its WAF/routing rules entirely.
-    Default matches the snet-appgw address_prefixes defined in appgateway.tf.
+    Public IP address of the App Gateway (pip-appgw-prod).
+    Used in the NSG to restrict inbound port 443 to App Gateway's public IP only.
+    In External VNet mode, App Gateway resolves the APIM FQDN to its public VIP
+    and sends traffic via the Azure internet path — the source IP at snet-apim's
+    NSG is App Gateway's public IP, not its private VNet IP. Restricting to this
+    specific IP means only App Gateway can reach APIM on port 443 from the internet.
+    Defaults to "Internet" when App Gateway is not deployed (allows direct APIM access).
   DESC
-  default = "10.0.1.0/24"
+  default = "Internet"
 }

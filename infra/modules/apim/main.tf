@@ -89,16 +89,15 @@ resource "azurerm_network_security_group" "apim" {
     destination_address_prefix = "VirtualNetwork"
   }
 
-  # Rule 3 — Gateway traffic inbound on port 443.
-  # Source is Internet rather than the App Gateway subnet CIDR because in
-  # External VNet mode APIM's gateway endpoint (port 443) is served from its
-  # public VIP, not from the private VNet NIC. App Gateway resolves the APIM
-  # FQDN to the public VIP and the traffic travels via the Azure internet path —
-  # by the time it hits this NSG the source IP is App Gateway's public IP, not
-  # its private IP (10.0.1.x). Restricting to the subnet CIDR therefore drops
-  # all traffic, leaving the backend pool unreachable and causing 502.
-  # External VNet mode is designed so the gateway is publicly reachable —
-  # security is enforced by APIM subscription keys and policies, not the NSG.
+  # Rule 3 — Gateway traffic inbound on port 443 from App Gateway only.
+  # In External VNet mode APIM's gateway endpoint (port 443) is served from its
+  # public VIP. App Gateway resolves the APIM FQDN to that VIP and sends traffic
+  # via the Azure internet path — by the time it hits this NSG the source IP is
+  # App Gateway's public IP (pip-appgw-prod), not its private VNet IP (10.0.1.x).
+  # We restrict to App Gateway's specific public IP (var.app_gateway_public_ip)
+  # rather than opening to all of Internet — this means only App Gateway can
+  # reach APIM on port 443, blocking anyone who tries to call the APIM gateway
+  # URL directly from a browser or curl without going through App Gateway.
   security_rule {
     name                       = "allow-gateway-https-inbound"
     priority                   = 110
@@ -107,7 +106,7 @@ resource "azurerm_network_security_group" "apim" {
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = "443"
-    source_address_prefix      = "Internet"
+    source_address_prefix      = var.app_gateway_public_ip
     destination_address_prefix = "VirtualNetwork"
   }
 }
