@@ -72,6 +72,12 @@ resource "azurerm_linux_web_app" "app" {
   # endpoint to remain reachable for deployments. The proper fix is a
   # self-hosted pipeline agent inside the VNet (set false + agent in VNet).
   public_network_access_enabled = true
+  # VNet Integration — routes ALL App Service outbound traffic through
+  # snet-app-integration so Key Vault DNS resolves via the privatelink zone.
+  # Set here on the web app resource (not as a separate swift connection) so
+  # that the AzureWebApp@1 ZIP deploy task cannot reset it — deployments only
+  # update the app code, not the web app ARM resource properties.
+  virtual_network_subnet_id     = var.integration_subnet_id
 
   site_config {
     application_stack {
@@ -98,29 +104,6 @@ resource "azurerm_linux_web_app" "app" {
   identity {
     type = "SystemAssigned"
   }
-}
-
-# ── App Service VNet Integration ──────────────────────────────────────────────
-# Routes ALL outbound traffic from App Service through snet-app-integration
-# (10.0.4.0/26) so it enters the VNet before leaving to any destination.
-#
-# Why this is the missing piece for Key Vault:
-#   Private endpoints only control inbound traffic to the target service.
-#   App Service's outbound DNS queries normally go to Azure's public resolver,
-#   which returns Key Vault's public IP — the privatelink DNS override never
-#   applies. VNet Integration changes the resolver: queries now go through the
-#   VNet's DNS, which picks up the privatelink.vaultcore.azure.net zone and
-#   returns the private endpoint NIC IP (10.0.3.y). The packet stays inside
-#   Azure's network the entire way.
-#
-# Why azurerm_app_service_virtual_network_swift_connection and not a block
-# inside azurerm_linux_web_app?
-#   The azurerm provider manages VNet Integration as a separate ARM resource
-#   (Microsoft.Web/sites/networkConfig). Modelling it separately means it can
-#   be created or removed without forcing a replacement of the App Service.
-resource "azurerm_app_service_virtual_network_swift_connection" "app" {
-  app_service_id = azurerm_linux_web_app.app.id
-  subnet_id      = var.integration_subnet_id
 }
 
 # ── Key Vault ─────────────────────────────────────────────────────────────────
