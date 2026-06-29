@@ -159,7 +159,7 @@
 
     async function loadWeather() {
       try {
-        const res = await fetch('/api/weather/forecast');
+        const res = await fetch('api/weather/forecast');
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
 
