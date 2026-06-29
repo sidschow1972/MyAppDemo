@@ -87,9 +87,20 @@ stages:
                 # ── 1b. Import appservice resources that were never state-mv'd ──
                 # azurerm_app_service_virtual_network_swift_connection was added
                 # as part of the module and was never at a root-level address,
-                # so state mv does not apply. Import it directly at the module
-                # address. Import ID format (azurerm docs): {app_service_id}/config/virtualNetwork
+                # so state mv does not apply.
+                #
+                # Why state rm before import?
+                #   A previous import may have written this resource to state even
+                #   though it did not exist in Azure (ARM returns a placeholder at
+                #   the /config/virtualNetwork path). With a stale state entry,
+                #   Terraform plans "0 changes" and never creates the resource.
+                #   Removing from state first forces a fresh evaluation: if the
+                #   resource exists in Azure the import re-adds it; if not, plan
+                #   shows "1 to add" and apply creates it correctly.
                 APP_SERVICE_ID="/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Web/sites/app-myapp-sid"
+                terraform state rm \
+                  'module.appservice.azurerm_app_service_virtual_network_swift_connection.app' \
+                  2>/dev/null || true
                 terraform import \
                   'module.appservice.azurerm_app_service_virtual_network_swift_connection.app' \
                   "$APP_SERVICE_ID/config/virtualNetwork" \
