@@ -172,12 +172,16 @@ resource "azurerm_application_gateway" "app" {
     port = 443
   }
 
-  # Backend FQDN is sourced from the APIM module output — no hardcoded names.
-  # When deploy_apim = false the backend pool is intentionally empty; set
+  # Backend target is APIM's private VNet IP, not its public FQDN.
+  # See modules/apim/outputs.tf (private_ip_address) for why private IP is
+  # used — short version: using the public FQDN routes traffic via the internet,
+  # causing App Gateway's source IP to appear as its public IP at snet-apim's
+  # NSG, which only allows 10.0.1.0/24. Private IP keeps traffic in the VNet.
+  # When deploy_apim = false the pool is intentionally empty; set
   # deploy_app_gateway = false as well when APIM is off.
   backend_address_pool {
-    name  = "apim-backend-pool"
-    fqdns = var.deploy_apim ? [module.apim[0].gateway_fqdn] : []
+    name         = "apim-backend-pool"
+    ip_addresses = var.deploy_apim ? [module.apim[0].private_ip_address] : []
   }
 
   # Custom health probe targeting APIM's built-in gateway status endpoint.
@@ -196,8 +200,9 @@ resource "azurerm_application_gateway" "app" {
   #   The smoke test in azure-pipelines.yml separately validates the full
   #   App Gateway → APIM → App Service path end-to-end.
   #
-  # pick_host_name_from_backend_http_settings sends the APIM FQDN as the SNI
-  # and Host header, matching what APIM expects from the gateway.
+  # pick_host_name_from_backend_http_settings picks the host_name set in
+  # backend_http_settings (the APIM FQDN) and sends it as the SNI and Host
+  # header for the probe request — APIM expects this header to be present.
   probe {
     name                                      = "apim-health-probe"
     protocol                                  = "Https"
@@ -212,17 +217,20 @@ resource "azurerm_application_gateway" "app" {
     }
   }
 
-  # pick_host_name_from_backend_address sends the APIM FQDN in the Host header.
+  # host_name explicitly sets the APIM FQDN as the Host header and SNI.
   # APIM uses the Host header to identify which gateway instance handles the
   # request — without it APIM returns 400 Bad Request.
+  # pick_host_name_from_backend_address cannot be used here because the backend
+  # pool now contains a private IP (not an FQDN), so there is no hostname for
+  # App Gateway to pick from — it must be set explicitly.
   backend_http_settings {
-    name                                = "apim-http-settings"
-    cookie_based_affinity               = "Disabled"
-    port                                = 443
-    protocol                            = "Https"
-    request_timeout                     = 30
-    pick_host_name_from_backend_address = true
-    probe_name                          = "apim-health-probe"
+    name                  = "apim-http-settings"
+    cookie_based_affinity = "Disabled"
+    port                  = 443
+    protocol              = "Https"
+    request_timeout       = 30
+    host_name             = var.deploy_apim ? module.apim[0].gateway_fqdn : ""
+    probe_name            = "apim-health-probe"
   }
 
   http_listener {
