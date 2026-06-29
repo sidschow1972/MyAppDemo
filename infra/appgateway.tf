@@ -180,17 +180,28 @@ resource "azurerm_application_gateway" "app" {
     fqdns = var.deploy_apim ? [module.apim[0].gateway_fqdn] : []
   }
 
-  # Custom health probe targeting /myapp/health (returns HTTP 200).
-  # Without this, App Gateway uses its default probe which hits the root path
-  # "/" on port 443. APIM returns 404 at the root (no API registered there),
-  # App Gateway treats 404 as unhealthy, marks the backend down, and returns
-  # 502 to every incoming request even though APIM is fully operational.
+  # Custom health probe targeting APIM's built-in gateway status endpoint.
+  #
+  # Why /status-0123456789abcdef and not /myapp/health?
+  #   /myapp/health goes all the way through to the App Service backend — if
+  #   the App Service is slow or restarting, the probe fails and App Gateway
+  #   marks APIM as unhealthy even though APIM itself is fine. The built-in
+  #   status endpoint is answered by the APIM gateway process directly: it
+  #   never hits any backend, requires no subscription key, and returns 200
+  #   purely based on whether the APIM gateway is alive. This means:
+  #     • Adding or removing APIs never affects the probe.
+  #     • Renaming /myapp to something else never breaks the probe.
+  #     • The probe answers only one question: "is APIM up?" — which is the
+  #       only thing App Gateway needs to know to decide whether to forward.
+  #   The smoke test in azure-pipelines.yml separately validates the full
+  #   App Gateway → APIM → App Service path end-to-end.
+  #
   # pick_host_name_from_backend_http_settings sends the APIM FQDN as the SNI
   # and Host header, matching what APIM expects from the gateway.
   probe {
     name                                      = "apim-health-probe"
     protocol                                  = "Https"
-    path                                      = "/myapp/health"
+    path                                      = "/status-0123456789abcdef"
     interval                                  = 30
     timeout                                   = 30
     unhealthy_threshold                       = 3
