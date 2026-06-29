@@ -1,0 +1,64 @@
+# =============================================================================
+# Scheduled teardown pipeline
+#
+# Destroys the two expensive resources — APIM (~$1.65/day) and App Gateway
+# (~$5.90/day) — by running terraform apply with both toggle variables set
+# to false. App Service, Key Vault, VNet, private endpoints, and DNS zones
+# are left untouched (near-zero cost).
+#
+# Runs automatically every night at 22:00 UTC. Can also be triggered manually
+# from the Azure DevOps pipeline UI (Run pipeline button) at any time.
+#
+# To restore: run azure-pipelines.yml with deploy_apim = true and
+# deploy_app_gateway = true (their defaults in variables.tf).
+#
+# Why -var and not editing variables.tf?
+#   Passing -var overrides at apply time means the code never changes —
+#   variables.tf always reflects the desired "on" state. The teardown is
+#   an operational action, not a code change.
+# =============================================================================
+
+trigger: none  # never runs on push — scheduled and manual only
+
+schedules:
+  - cron: '0 22 * * *'   # 22:00 UTC every day
+    displayName: 'Nightly teardown (10 PM UTC)'
+    branches:
+      include:
+        - main
+    always: true          # run even if no code changes since last run
+
+jobs:
+  - job: Teardown
+    displayName: 'Tear down APIM and App Gateway'
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - task: TerraformInstaller@1
+        inputs:
+          terraformVersion: '1.7.5'
+
+      - task: TerraformTaskV4@4
+        displayName: 'Terraform Init'
+        inputs:
+          provider: 'azurerm'
+          command: 'init'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/infra'
+          backendServiceArm: 'myapp-service-connection'
+          backendAzureRmResourceGroupName: 'rg-tfstate'
+          backendAzureRmStorageAccountName: 'stmyapptfstatesid'
+          backendAzureRmContainerName: 'tfstate'
+          backendAzureRmKey: 'myapp.terraform.tfstate'
+
+      - task: TerraformTaskV4@4
+        displayName: 'Terraform Apply — disable APIM and App Gateway'
+        inputs:
+          provider: 'azurerm'
+          command: 'apply'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/infra'
+          environmentServiceNameAzureRM: 'myapp-service-connection'
+          # -var overrides take precedence over variables.tf defaults.
+          # No approval gate — tearing down is safe and fully reversible.
+          # No -out plan file — the override vars are simple boolean toggles
+          # with no risk of unexpected side effects on other resources.
+          commandOptions: '-auto-approve -var="deploy_apim=false" -var="deploy_app_gateway=false"'
