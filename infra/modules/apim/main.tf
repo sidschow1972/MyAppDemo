@@ -89,14 +89,16 @@ resource "azurerm_network_security_group" "apim" {
     destination_address_prefix = "VirtualNetwork"
   }
 
-  # Rule 3 — Gateway traffic from App Gateway only.
-  # Restricting source to the App Gateway subnet CIDR (var.app_gateway_subnet_cidr,
-  # default 10.0.1.0/24) rather than "Internet" closes a significant gap:
-  # with "Internet" as source, anyone who discovers the APIM gateway FQDN
-  # (apim-myapp-sid.azure-api.net) can call it directly from a browser or curl,
-  # bypassing App Gateway and any WAF rules or routing policies on it.
-  # With the subnet CIDR as source, only packets originating from snet-appgw
-  # are allowed through — App Gateway is the only resource in that subnet.
+  # Rule 3 — Gateway traffic inbound on port 443.
+  # Source is Internet rather than the App Gateway subnet CIDR because in
+  # External VNet mode APIM's gateway endpoint (port 443) is served from its
+  # public VIP, not from the private VNet NIC. App Gateway resolves the APIM
+  # FQDN to the public VIP and the traffic travels via the Azure internet path —
+  # by the time it hits this NSG the source IP is App Gateway's public IP, not
+  # its private IP (10.0.1.x). Restricting to the subnet CIDR therefore drops
+  # all traffic, leaving the backend pool unreachable and causing 502.
+  # External VNet mode is designed so the gateway is publicly reachable —
+  # security is enforced by APIM subscription keys and policies, not the NSG.
   security_rule {
     name                       = "allow-gateway-https-inbound"
     priority                   = 110
@@ -105,7 +107,7 @@ resource "azurerm_network_security_group" "apim" {
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = "443"
-    source_address_prefix      = var.app_gateway_subnet_cidr
+    source_address_prefix      = "Internet"
     destination_address_prefix = "VirtualNetwork"
   }
 }
