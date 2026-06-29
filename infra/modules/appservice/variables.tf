@@ -13,6 +13,16 @@ variable "tenant_id" {
   description = "Azure AD tenant ID. Used by Key Vault to scope access policies to this tenant."
 }
 
+variable "key_vault_id" {
+  type        = string
+  description = "Key Vault resource ID from module.keyvault — used for the access policy and private endpoint."
+}
+
+variable "key_vault_uri" {
+  type        = string
+  description = "Key Vault URI (https://kv-myapp-sid.vault.azure.net/) — injected as the KeyVaultUri app setting."
+}
+
 variable "integration_subnet_id" {
   type        = string
   description = <<-DESC

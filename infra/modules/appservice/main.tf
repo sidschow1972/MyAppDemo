@@ -2,13 +2,16 @@
 # App Service module
 #
 # What lives here:
-#   App Service Plan (B1) → App Service → VNet Integration → Key Vault
+#   App Service Plan (B1) → App Service → VNet Integration
+#   Key Vault access policy (grants App Service managed identity read access)
 #   Log Analytics Workspace → Application Insights
 #
 # What lives elsewhere (by design):
+#   Key Vault resource — in modules/keyvault. Its ID and URI are passed in
+#     via key_vault_id and key_vault_uri variables.
 #   Private endpoints and DNS zones (appgateway.tf) — they are networking
-#   resources that sit in snet-pe alongside APIM's subnet. Keeping them in
-#   the network file means all address-space allocation is visible in one place.
+#     resources that sit in snet-pe alongside APIM's subnet. Keeping them in
+#     the network file means all address-space allocation is visible in one place.
 #
 # Inbound traffic path (managed outside this module):
 #   Internet → App Gateway → APIM → snet-pe NIC → App Service
@@ -93,7 +96,7 @@ resource "azurerm_linux_web_app" "app" {
     # With VNet Integration active and the privatelink.vaultcore.azure.net zone
     # linked to the VNet, this FQDN resolves to 10.0.3.y (Key Vault private
     # endpoint NIC) rather than Key Vault's public IP.
-    "KeyVaultUri" = azurerm_key_vault.app.vault_uri
+    "KeyVaultUri" = var.key_vault_uri
 
     # Application Insights SDK sends telemetry outbound to Azure Monitor.
     # Outbound traffic is not restricted — only inbound to App Service and
@@ -106,28 +109,9 @@ resource "azurerm_linux_web_app" "app" {
   }
 }
 
-# ── Key Vault ─────────────────────────────────────────────────────────────────
-# Stores application secrets. The private endpoint in appgateway.tf (pe-kv-myapp-sid)
-# creates a NIC in snet-pe so App Service (via VNet Integration) can reach it.
-#
-# Why public_network_access_enabled = false?
-#   Without this flag Key Vault still responds to requests from the public
-#   internet even after the private endpoint is created. Setting it to false
-#   means only callers whose packets arrive through the private endpoint NIC
-#   can connect — in practice, only App Service via snet-app-integration.
-#   A developer's laptop, the pipeline agent, or a misconfigured service
-#   cannot reach Key Vault directly.
-resource "azurerm_key_vault" "app" {
-  name                          = "kv-myapp-sid"
-  resource_group_name           = var.resource_group_name
-  location                      = var.location
-  tenant_id                     = var.tenant_id
-  sku_name                      = "standard"
-  public_network_access_enabled = false
-}
-
 # ── Key Vault access policy ───────────────────────────────────────────────────
 # Grants the App Service managed identity read-only access to secrets.
+# Key Vault itself lives in modules/keyvault; its ID is passed in via var.key_vault_id.
 #
 # Why Get and List only?
 #   Principle of least privilege. The application reads secrets at startup —
@@ -136,7 +120,7 @@ resource "azurerm_key_vault" "app" {
 #   overwrite them, delete them, or access secret history (Set/Delete/Purge
 #   permissions would enable those actions).
 resource "azurerm_key_vault_access_policy" "app_identity" {
-  key_vault_id = azurerm_key_vault.app.id
+  key_vault_id = var.key_vault_id
   tenant_id    = var.tenant_id
   object_id    = azurerm_linux_web_app.app.identity[0].principal_id
 

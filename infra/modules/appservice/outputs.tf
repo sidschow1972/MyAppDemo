@@ -13,12 +13,6 @@ output "app_service_default_hostname" {
   description = "App Service hostname without https:// — passed to APIM as backend service_url."
 }
 
-# Used by appgateway.tf to create the Key Vault private endpoint.
-output "key_vault_id" {
-  value       = azurerm_key_vault.app.id
-  description = "Key Vault resource ID — target for the private endpoint in appgateway.tf."
-}
-
 # Exposed for any future role assignments that reference the App Service identity
 # (e.g. granting it access to Storage or Service Bus).
 output "app_service_principal_id" {

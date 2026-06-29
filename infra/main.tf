@@ -3,7 +3,8 @@
 #
 # This file owns:
 #   - The resource group (parent for everything)
-#   - The App Service module call (App Service, Key Vault, monitoring)
+#   - The Key Vault module call (Key Vault instance)
+#   - The App Service module call (App Service, access policy, monitoring)
 #   - Azure Load Test (pipeline test stage placeholder)
 #
 # Other concerns are split by file:
@@ -19,19 +20,36 @@ resource "azurerm_resource_group" "app" {
   location = "East US 2"
 }
 
+# ── Key Vault module ──────────────────────────────────────────────────────────
+# Provisions the Key Vault instance only.
+# The private endpoint and DNS zone live in appgateway.tf.
+# The access policy (granting App Service read access) lives in modules/appservice.
+module "keyvault" {
+  source = "./modules/keyvault"
+
+  resource_group_name = azurerm_resource_group.app.name
+  location            = azurerm_resource_group.app.location
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+  virtual_network_id  = azurerm_virtual_network.app.id
+  pe_subnet_id        = azurerm_subnet.pe.id
+}
+
 # ── App Service module ────────────────────────────────────────────────────────
 # Provisions:
 #   - App Service Plan (B1) and App Service (Linux .NET 8)
 #   - App Service VNet Integration (outbound routing via snet-app-integration)
-#   - Key Vault (secrets, private access only)
 #   - Key Vault access policy (App Service managed identity, read-only)
 #   - Log Analytics Workspace + Application Insights
+#
+# Why key_vault_id and key_vault_uri come from module.keyvault:
+#   The Key Vault resource lives in its own module so it can be audited and
+#   managed independently. The appservice module only needs the ID (for the
+#   access policy) and the URI (for the KeyVaultUri app setting).
 #
 # Why integration_subnet_id comes from appgateway.tf:
 #   All subnet address-space allocation lives in appgateway.tf so the full
 #   VNet layout (snet-appgw, snet-apim, snet-pe, snet-app-integration) is
-#   visible in one file. The module only needs the subnet ID — it does not
-#   care about the address range.
+#   visible in one file. The module only needs the subnet ID.
 #
 # Why tenant_id comes from data.tf:
 #   data.azurerm_client_config.current is declared in data.tf and shared
@@ -43,6 +61,8 @@ module "appservice" {
   resource_group_name   = azurerm_resource_group.app.name
   location              = azurerm_resource_group.app.location
   tenant_id             = data.azurerm_client_config.current.tenant_id
+  key_vault_id          = module.keyvault.key_vault_id
+  key_vault_uri         = module.keyvault.vault_uri
   integration_subnet_id = azurerm_subnet.app_integration.id
 }
 

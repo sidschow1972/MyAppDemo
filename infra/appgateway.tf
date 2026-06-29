@@ -21,7 +21,7 @@
 #   Key Vault private endpoint NIC                    snet-pe           10.0.3.0/24
 #     │  internal only (public_network_access_enabled = false on Key Vault)
 #     ▼
-#   Key Vault  [module: modules/appservice]
+#   Key Vault  [module: modules/keyvault]
 #
 # VNet address plan — all subnets in one place so allocations do not overlap:
 #   10.0.0.0/16      vnet-myapp-prod
@@ -326,52 +326,5 @@ resource "azurerm_private_endpoint" "app_service" {
   }
 }
 
-# =============================================================================
-# Private endpoint — Key Vault
-# =============================================================================
-
-# ── Private DNS zone for Key Vault ────────────────────────────────────────────
-# Why a separate zone from the App Service one?
-#   Each Azure PaaS service type has its own privatelink subdomain — they cannot
-#   share a zone. The Key Vault CNAME chain is:
-#     kv-myapp-sid.vault.azure.net
-#       → kv-myapp-sid.privatelink.vaultcore.azure.net
-#   Without this zone, Key Vault DNS inside the VNet returns the public IP even
-#   though a private endpoint exists, and App Service's outbound call gets
-#   blocked (public_network_access_enabled = false on Key Vault).
-resource "azurerm_private_dns_zone" "key_vault" {
-  name                = "privatelink.vaultcore.azure.net"
-  resource_group_name = azurerm_resource_group.app.name
-}
-
-resource "azurerm_private_dns_zone_virtual_network_link" "key_vault" {
-  name                  = "pdnsl-keyvault-vnet"
-  resource_group_name   = azurerm_resource_group.app.name
-  private_dns_zone_name = azurerm_private_dns_zone.key_vault.name
-  virtual_network_id    = azurerm_virtual_network.app.id
-  registration_enabled  = false
-}
-
-# ── Key Vault private endpoint ────────────────────────────────────────────────
-# Creates a NIC in snet-pe for inbound Key Vault access.
-# App Service reaches it via snet-app-integration (VNet Integration) → VNet
-# DNS resolves vault.azure.net to 10.0.3.y → packet arrives at this NIC.
-# subresource_names = ["vault"] is the fixed token for Key Vault standard vaults.
-resource "azurerm_private_endpoint" "key_vault" {
-  name                = "pe-kv-myapp-sid"
-  resource_group_name = azurerm_resource_group.app.name
-  location            = azurerm_resource_group.app.location
-  subnet_id           = azurerm_subnet.pe.id
-
-  private_service_connection {
-    name                           = "psc-kv-myapp-sid"
-    private_connection_resource_id = module.appservice.key_vault_id
-    subresource_names              = ["vault"]
-    is_manual_connection           = false
-  }
-
-  private_dns_zone_group {
-    name                 = "pdnszg-kv-myapp-sid"
-    private_dns_zone_ids = [azurerm_private_dns_zone.key_vault.id]
-  }
-}
+# Key Vault private endpoint, DNS zone, and VNet link live in modules/keyvault
+# — see infra/modules/keyvault/main.tf for the full network access path.

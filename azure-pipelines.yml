@@ -108,6 +108,31 @@ stages:
                 terraform state mv 'azurerm_log_analytics_workspace.app'          'module.appservice.azurerm_log_analytics_workspace.app'          2>/dev/null || true
                 terraform state mv 'azurerm_application_insights.app'             'module.appservice.azurerm_application_insights.app'             2>/dev/null || true
 
+                # ── 1a. Move Key Vault and its networking into modules/keyvault ──
+                # The Key Vault resource was refactored out of modules/appservice
+                # into modules/keyvault. The private endpoint, DNS zone, and VNet
+                # link were moved out of the root module (appgateway.tf) into the
+                # same keyvault module so it is fully self-contained.
+                # state mv renames each address in state — no Azure resource is
+                # touched. Without this, Terraform would destroy and recreate the
+                # Key Vault (triggering the soft-delete lock) and the private endpoint.
+                terraform state mv \
+                  'module.appservice.azurerm_key_vault.app' \
+                  'module.keyvault.azurerm_key_vault.app' \
+                  2>/dev/null || true
+                terraform state mv \
+                  'azurerm_private_dns_zone.key_vault' \
+                  'module.keyvault.azurerm_private_dns_zone.key_vault' \
+                  2>/dev/null || true
+                terraform state mv \
+                  'azurerm_private_dns_zone_virtual_network_link.key_vault' \
+                  'module.keyvault.azurerm_private_dns_zone_virtual_network_link.key_vault' \
+                  2>/dev/null || true
+                terraform state mv \
+                  'azurerm_private_endpoint.key_vault' \
+                  'module.keyvault.azurerm_private_endpoint.key_vault' \
+                  2>/dev/null || true
+
                 # ── 1b. Remove old swift connection resource from state ────────
                 # VNet Integration was previously managed as a separate
                 # azurerm_app_service_virtual_network_swift_connection resource.
