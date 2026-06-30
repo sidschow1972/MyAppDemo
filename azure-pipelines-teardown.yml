@@ -21,8 +21,8 @@
 trigger: none  # never runs on push — scheduled and manual only
 
 schedules:
-  - cron: '0 22 * * *'   # 22:00 UTC every day
-    displayName: 'Nightly teardown (10 PM UTC)'
+  - cron: '0 1 * * *'    # 01:00 UTC = 8 PM EST every day
+    displayName: 'Nightly teardown (8 PM EST / 01:00 UTC)'
     branches:
       include:
         - main
