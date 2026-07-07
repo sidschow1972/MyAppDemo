@@ -3,6 +3,12 @@ trigger:
     include:
       - main
 
+# Never trigger from pull request events — only from a push to main, which
+# only happens after a PR is reviewed and merged. Without this, Azure DevOps
+# could run this pipeline (Terraform apply against real Azure resources)
+# on every PR update before anyone approves it.
+pr: none
+
 stages:
   - stage: Infrastructure
     jobs:
