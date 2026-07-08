@@ -3,6 +3,12 @@ trigger:
     include:
       - main
 
+# Never trigger from pull request events — only from a push to main, which
+# only happens after a PR is reviewed and merged. Without this, Azure DevOps
+# could run this pipeline (Terraform apply against real Azure resources)
+# on every PR update before anyone approves it.
+pr: none
+
 stages:
   - stage: Infrastructure
     jobs:
@@ -21,29 +27,61 @@ stages:
             inputs:
               terraformVersion: '1.7.5'
 
-          # ── Protect tfstate storage account ───────────────────────────
-          # The state backend storage account is not managed by Terraform
-          # (bootstrap resource — predates the Terraform config). These
-          # settings are applied here to ensure they are always in place:
+          # ── Bootstrap tfstate backend ─────────────────────────────────
+          # The teardown pipeline deletes this storage account after every
+          # nightly destroy, so it must be recreated here before Terraform
+          # Init runs — Terraform cannot create the backend it initializes
+          # against. All commands are idempotent (no-op if already exists),
+          # so this is safe to run on every pipeline execution, including
+          # the very first one.
+          - task: AzureCLI@2
+            displayName: 'Ensure tfstate backend exists'
+            inputs:
+              azureSubscription: 'myapp-service-connection'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az group create \
+                  --name rg-tfstate \
+                  --location eastus
+
+                az storage account create \
+                  --name stmyapptfstatesid \
+                  --resource-group rg-tfstate \
+                  --sku Standard_LRS \
+                  --encryption-services blob
+
+                az storage container create \
+                  --name tfstate \
+                  --account-name stmyapptfstatesid \
+                  --auth-mode login
+
+          # ── Protect tfstate storage account (disabled for this test env) ──
+          # Not needed for personal/test use — the teardown pipeline deletes
+          # the whole storage account nightly anyway, so retained blob
+          # versions/soft-deleted blobs never survive to be useful. Re-enable
+          # for a real/production setup where the tfstate backend persists
+          # long-term and protecting it from corruption/accidental overwrite
+          # is worth the (minimal) extra storage cost:
           #   versioning    — keeps every previous version of the state blob
           #                   so a corrupted state can be restored to any
           #                   prior point without manual reconstruction.
           #   soft-delete   — retains deleted/overwritten blobs for 30 days
           #                   as a second safety net.
           # Both commands are idempotent — safe to run on every pipeline.
-          - task: AzureCLI@2
-            displayName: 'Enable tfstate versioning and soft delete'
-            inputs:
-              azureSubscription: 'myapp-service-connection'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              inlineScript: |
-                az storage account blob-service-properties update \
-                  --account-name stmyapptfstatesid \
-                  --resource-group rg-tfstate \
-                  --enable-versioning true \
-                  --enable-delete-retention true \
-                  --delete-retention-days 30
+          # - task: AzureCLI@2
+          #   displayName: 'Enable tfstate versioning and soft delete'
+          #   inputs:
+          #     azureSubscription: 'myapp-service-connection'
+          #     scriptType: 'bash'
+          #     scriptLocation: 'inlineScript'
+          #     inlineScript: |
+          #       az storage account blob-service-properties update \
+          #         --account-name stmyapptfstatesid \
+          #         --resource-group rg-tfstate \
+          #         --enable-versioning true \
+          #         --enable-delete-retention true \
+          #         --delete-retention-days 30
 
           - task: TerraformTaskV4@4
             displayName: 'Terraform Init'

@@ -1,24 +1,20 @@
 # =============================================================================
 # Scheduled teardown pipeline
 #
-# Destroys the two expensive resources — APIM (~$1.65/day) and App Gateway
-# (~$5.90/day) — by running terraform apply with both toggle variables set
-# to false. App Service, Key Vault, VNet, private endpoints, and DNS zones
-# are left untouched (near-zero cost).
+# Destroys ALL infrastructure managed by this Terraform configuration via
+# `terraform destroy`, including App Service, Key Vault, VNet, private
+# endpoints, and DNS zones — not just APIM and App Gateway.
 #
-# Runs automatically every night at 22:00 UTC. Can also be triggered manually
-# from the Azure DevOps pipeline UI (Run pipeline button) at any time.
+# Runs automatically every night at 01:00 UTC (8 PM EST). Can also be
+# triggered manually from the Azure DevOps pipeline UI (Run pipeline button)
+# at any time.
 #
-# To restore: run azure-pipelines.yml with deploy_apim = true and
-# deploy_app_gateway = true (their defaults in variables.tf).
-#
-# Why -var and not editing variables.tf?
-#   Passing -var overrides at apply time means the code never changes —
-#   variables.tf always reflects the desired "on" state. The teardown is
-#   an operational action, not a code change.
+# To restore: run azure-pipelines.yml to re-apply the full configuration
+# from scratch.
 # =============================================================================
 
 trigger: none  # never runs on push — scheduled and manual only
+pr: none        # never runs on pull request events either
 
 schedules:
   - cron: '0 1 * * *'    # 01:00 UTC = 8 PM EST every day
@@ -30,7 +26,7 @@ schedules:
 
 jobs:
   - job: Teardown
-    displayName: 'Tear down APIM and App Gateway'
+    displayName: 'Destroy all infrastructure'
     pool:
       vmImage: ubuntu-latest
     steps:
@@ -51,14 +47,53 @@ jobs:
           backendAzureRmKey: 'myapp.terraform.tfstate'
 
       - task: TerraformTaskV4@4
-        displayName: 'Terraform Apply — disable APIM and App Gateway'
+        displayName: 'Terraform Destroy — tear down all infrastructure'
         inputs:
           provider: 'azurerm'
-          command: 'apply'
+          command: 'destroy'
           workingDirectory: '$(System.DefaultWorkingDirectory)/infra'
           environmentServiceNameAzureRM: 'myapp-service-connection'
-          # -var overrides take precedence over variables.tf defaults.
-          # No approval gate — tearing down is safe and fully reversible.
-          # No -out plan file — the override vars are simple boolean toggles
-          # with no risk of unexpected side effects on other resources.
-          commandOptions: '-auto-approve -var="deploy_apim=false" -var="deploy_app_gateway=false"'
+          commandOptions: '-auto-approve'
+
+      # ── Purge Key Vault ─────────────────────────────────────────────────
+      # terraform destroy soft-deletes the Key Vault — it does not purge it.
+      # Azure enforces Key Vault soft delete unconditionally (no toggle to
+      # disable it), so the vault name stays reserved for the retention
+      # period unless purged. Without this step, tomorrow's terraform apply
+      # would fail with "kv-myapp-sid already exists in deleted vault state."
+      # Purging here guarantees every deploy starts from a truly clean slate.
+      # || true — a no-op if the vault was never soft-deleted (e.g. destroy
+      # partially failed before reaching Key Vault, or it didn't exist).
+      - task: AzureCLI@2
+        displayName: 'Purge soft-deleted Key Vault'
+        condition: succeeded()
+        inputs:
+          azureSubscription: 'myapp-service-connection'
+          scriptType: 'bash'
+          scriptLocation: 'inlineScript'
+          inlineScript: |
+            az keyvault purge \
+              --name kv-myapp-sid \
+              --location eastus2 \
+              || true
+
+      # ── Delete tfstate backend ─────────────────────────────────────────
+      # Explicit condition (not just relying on Azure Pipelines' default
+      # succeeded() behavior) — only runs if Terraform Destroy above
+      # succeeded. Deleting the state backend after everything it tracked
+      # is gone makes every resource in this build fully ephemeral. The
+      # deploy pipeline recreates this storage account before its own
+      # Terraform Init runs, so this is safe — nothing else depends on it
+      # surviving.
+      - task: AzureCLI@2
+        displayName: 'Delete tfstate backend'
+        condition: succeeded()
+        inputs:
+          azureSubscription: 'myapp-service-connection'
+          scriptType: 'bash'
+          scriptLocation: 'inlineScript'
+          inlineScript: |
+            az storage account delete \
+              --name stmyapptfstatesid \
+              --resource-group rg-tfstate \
+              --yes
